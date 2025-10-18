@@ -102,7 +102,17 @@ This guide explains how to deploy the Fanaan AI Dashboard to a Proxmox LXC conta
         root /var/www/fanaan-ai-dashboard/dist;
         index index.html;
 
+        # This line is crucial. It ensures Nginx knows the correct MIME types
+        # for files like .js (JavaScript) and .css (stylesheets). While this
+        # is often in the global nginx.conf, including it here makes the
+        # configuration more robust and prevents common errors.
+        include /etc/nginx/mime.types;
+
         location / {
+            # This is the standard "try files" rule for a Single Page Application (SPA)
+            # It tries to serve the requested file directly, and if it fails,
+            # it falls back to serving index.html, allowing the client-side
+            # router to handle the URL.
             try_files $uri $uri/ /index.html;
         }
 
