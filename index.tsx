@@ -376,10 +376,50 @@ async function initializeGeminiImagesPage() {
 
 async function initializeGroqTtsPage() {
     const form = document.getElementById('groq-tts-form') as HTMLFormElement;
+    const modelSelect = document.getElementById('groq-tts-model') as HTMLSelectElement;
+    const voiceSelect = document.getElementById('groq-tts-voice') as HTMLSelectElement;
     const generateButton = document.getElementById('groq-tts-generate-button') as HTMLButtonElement;
     const statusEl = document.getElementById('groq-tts-status');
     const audioContainer = document.getElementById('groq-tts-audio-container');
     const audioPreview = document.getElementById('groq-tts-audio-preview') as HTMLAudioElement;
+
+    type VoicesMap = {
+        [key: string]: { [key: string]: string[] }
+    };
+
+    const ttsVoices: VoicesMap = {
+        'playai-tts': {
+            Male: ['shimmer', 'echo', 'onyx', 'dusk', 'drake', 'loki'],
+            Female: ['alloy', 'fable', 'juniper', 'nova', 'aurora', 'luna', 'hera', 'ember']
+        },
+        'playai-tts-arabic': {
+            Male: ['dusk', 'drake'],
+            Female: ['luna', 'hera']
+        }
+    };
+
+    function populateVoices(model: string) {
+        if (!voiceSelect || !ttsVoices[model]) return;
+        voiceSelect.innerHTML = '';
+        const voices = ttsVoices[model];
+        
+        for (const gender in voices) {
+            const optgroup = document.createElement('optgroup');
+            optgroup.label = gender;
+            voices[gender].forEach(voice => {
+                const option = document.createElement('option');
+                option.value = voice;
+                option.textContent = voice.charAt(0).toUpperCase() + voice.slice(1);
+                optgroup.appendChild(option);
+            });
+            voiceSelect.appendChild(optgroup);
+        }
+    }
+
+    if (modelSelect) {
+      populateVoices(modelSelect.value);
+      modelSelect.addEventListener('change', () => populateVoices(modelSelect.value));
+    }
 
     form?.addEventListener('submit', async (e) => {
         e.preventDefault();
@@ -392,28 +432,56 @@ async function initializeGroqTtsPage() {
         const formData = new FormData(form);
         const text = formData.get('text') as string;
         const voice = formData.get('voice') as string;
+        const model = formData.get('model') as string;
+
+        if (!text || !voice || !model) {
+            alert('Please select a model, a voice, and enter some text.');
+            return;
+        }
 
         generateButton.disabled = true;
         audioContainer?.classList.add('hidden');
         statusEl?.classList.remove('hidden');
+        
+        if (audioPreview.src.startsWith('blob:')) {
+            URL.revokeObjectURL(audioPreview.src);
+        }
 
         try {
-            // This is a placeholder for the actual Groq TTS API call.
-            // Using a sample audio file.
-            await new Promise(resolve => setTimeout(resolve, 2000)); // Simulate generation time
-            const audioUrl = 'https://storage.googleapis.com/gtv-videos-bucket/sample/ForBiggerFun.mp4'; // Using a video file as placeholder since it works with <audio>
+            const response = await fetch("https://api.groq.com/openai/v1/audio/speech", {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${apiKey}`,
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    model: model,
+                    input: text,
+                    voice: voice
+                })
+            });
+
+            if (!response.ok) {
+                const errorData = await response.json();
+                throw new Error(errorData.error.message || `HTTP error! status: ${response.status}`);
+            }
+
+            const audioBlob = await response.blob();
+            const audioUrl = URL.createObjectURL(audioBlob);
             
             audioPreview.src = audioUrl;
+            audioPreview.load();
             audioContainer?.classList.remove('hidden');
 
             const webhookToggle = document.getElementById('groq-tts-webhook-toggle') as HTMLInputElement;
             if (webhookToggle?.checked) {
-                sendWebhook('Groq TTS', 'success', { text, voice, audioUrl });
+                sendWebhook('Groq TTS', 'success', { text, voice, model });
             }
         } catch (error) {
             if(statusEl) {
                 const span = statusEl.querySelector('span');
-                if (span) span.textContent = 'Error generating speech.';
+                const message = error instanceof Error ? error.message : 'An unknown error occurred.';
+                if (span) span.textContent = `Error: ${message}`;
             }
             console.error(error);
         } finally {
