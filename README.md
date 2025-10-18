@@ -8,7 +8,7 @@ This project uses Vite for a fast development experience and Tailwind CSS for st
 
 ### Prerequisites
 
-- Node.js (v18 or newer)
+- Node.js (v18 or newer recommended)
 - npm or yarn
 
 ### Installation & Running Locally
@@ -60,12 +60,26 @@ This guide explains how to deploy the Fanaan AI Dashboard to a Proxmox LXC conta
 
 1.  Start the container from the Proxmox UI.
 2.  Open the container's console or SSH into it.
-3.  Update the package list and install necessary tools:
+3.  Update the package list:
     ```bash
     apt update && apt upgrade -y
-    apt install -y nodejs npm git nginx curl
     ```
-    *Note: The version of Node.js from the default repositories might be old. For a specific version, you might need to use a source like NodeSource.*
+4.  **Install Node.js v20 (LTS):** The default Node.js version in system repositories is often outdated. These steps install a modern version.
+    ```bash
+    # Install curl and other dependencies
+    apt install -y curl ca-certificates git nginx
+
+    # Download and execute the NodeSource setup script for Node.js 20.x
+    curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
+
+    # Install Node.js
+    apt install -y nodejs
+    ```
+5.  Verify the installation:
+    ```bash
+    node -v # Should show v20.x.x
+    npm -v
+    ```
 
 ### 3. Clone and Build the Project
 
