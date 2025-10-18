@@ -1,3 +1,7 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
 /* --- GLOBAL & FONTS --- */
 :root {
   --sidebar-width-expanded: 260px;

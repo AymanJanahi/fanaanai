@@ -1,3 +1,5 @@
+import './index.css';
+
 // Type definitions for API keys
 // FIX: Removed the index signature `[key: string]: string | null;`.
 // This was causing `keyof ApiKeys` to resolve to `string | number`, which is not
@@ -216,18 +218,41 @@ function initializeApiKeysPage() {
         }
     });
 
+    const eyeIcon = `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>`;
+    const eyeOffIcon = `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.88 9.88a3 3 0 1 0 4.24 4.24"/><path d="M10.73 5.08A10.43 10.43 0 0 1 12 5c7 0 10 7 10 7a13.16 13.16 0 0 1-1.67 2.68"/><path d="M6.61 6.61A13.526 13.526 0 0 0 2 12s3 7 10 7a9.74 9.74 0 0 0 5.39-1.61"/><line x1="2" x2="22" y1="2" y2="22"/></svg>`;
+
     document.querySelectorAll('.password-toggle').forEach(button => {
         button.addEventListener('click', (event) => {
             const btn = event.currentTarget as HTMLButtonElement;
             const input = btn.previousElementSibling as HTMLInputElement;
             if (input.type === 'password') {
                 input.type = 'text';
-                btn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>`;
+                btn.innerHTML = eyeIcon;
             } else {
                 input.type = 'password';
-                btn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.88 9.88a3 3 0 1 0 4.24 4.24"/><path d="M10.73 5.08A10.43 10.43 0 0 1 12 5c7 0 10 7 10 7a13.16 13.16 0 0 1-1.67 2.68"/><path d="M6.61 6.61A13.526 13.526 0 0 0 2 12s3 7 10 7a9.74 9.74 0 0 0 5.39-1.61"/><line x1="2" x2="22" y1="2" y2="22"/></svg>`;
+                btn.innerHTML = eyeOffIcon;
             }
         });
+    });
+    
+    const toggleAllBtn = document.getElementById('toggle-all-keys-visibility');
+    toggleAllBtn?.addEventListener('click', () => {
+        const firstKeyInput = document.getElementById('googleGenAIKey') as HTMLInputElement | null;
+        // Determine the action based on the visibility of the first key. Default to "show" if not found.
+        const shouldShow = firstKeyInput ? firstKeyInput.type === 'password' : true;
+
+        document.querySelectorAll('.api-key-input-wrapper').forEach(wrapper => {
+            const input = wrapper.querySelector('input');
+            const toggle = wrapper.querySelector('.password-toggle');
+            if (input && toggle) {
+                input.type = shouldShow ? 'text' : 'password';
+                toggle.innerHTML = shouldShow ? eyeIcon : eyeOffIcon;
+            }
+        });
+        
+        if(toggleAllBtn) {
+            toggleAllBtn.textContent = shouldShow ? 'Hide All' : 'Show All';
+        }
     });
 }
 
