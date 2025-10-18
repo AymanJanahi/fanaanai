@@ -1,0 +1,47 @@
+<div class="bg-[#2a2b2e] px-8 pt-8 pb-6 rounded-2xl shadow-2xl w-full max-w-3xl mx-auto space-y-6">
+  <div class="space-y-2">
+    <h1 class="text-3xl font-bold text-white tracking-tight">Generate Images with Groq</h1>
+    <p class="text-gray-400">
+      Create images from text prompts. (Note: This is a simulated endpoint.)
+    </p>
+  </div>
+
+  <form id="groq-image-form" class="space-y-6">
+    <!-- Prompt -->
+    <div>
+      <label for="groq-image-prompt" class="block text-sm font-medium text-gray-300 mb-2">Prompt</label>
+      <textarea
+        id="groq-image-prompt"
+        name="prompt"
+        rows="4"
+        class="form-input"
+        placeholder="e.g., A futuristic city skyline at dusk, with flying cars"
+      ></textarea>
+    </div>
+    
+    <!-- Webhook Toggle -->
+    <div class="flex items-center justify-between pt-2">
+      <span class="text-sm font-medium text-gray-300">Send Webhook on Success</span>
+      <label class="toggle-switch-label">
+        <input type="checkbox" id="groq-image-webhook-toggle" class="toggle-switch-input" />
+        <span class="toggle-switch-slider"></span>
+      </label>
+    </div>
+
+    <!-- Generate Button -->
+    <div class="pt-2">
+      <button type="submit" id="groq-image-generate-button" class="btn btn-primary w-full">Generate Image</button>
+    </div>
+  </form>
+
+  <!-- Status & Output -->
+  <div class="space-y-4 pt-4 text-center">
+    <div id="groq-image-status" class="hidden text-gray-400 flex items-center justify-center">
+      <div class="spinner"></div>
+      <span>Generating image...</span>
+    </div>
+    <div id="groq-image-container" class="hidden">
+      <img id="groq-image-preview" class="w-full max-w-md mx-auto rounded-lg" />
+    </div>
+  </div>
+</div>

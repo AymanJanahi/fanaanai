@@ -30,6 +30,8 @@ const routes: { [key: string]: { page: string; init: () => void } } = {
       }),
     })
   },
+  '#groq-tts': { page: '/pages/groq-tts.html', init: initializeGroqTtsPage },
+  '#groq-images': { page: '/pages/groq-images.html', init: initializeGroqImagesPage },
   '#claude-text': { page: '/pages/claude-text.html', init: () => initializeTextGenerationPage({
       pageId: 'claude-text',
       formId: 'claude-text-form',
@@ -334,6 +336,104 @@ async function initializeGeminiImagesPage() {
         }
     });
 }
+
+async function initializeGroqTtsPage() {
+    const form = document.getElementById('groq-tts-form') as HTMLFormElement;
+    const generateButton = document.getElementById('groq-tts-generate-button') as HTMLButtonElement;
+    const statusEl = document.getElementById('groq-tts-status');
+    const audioContainer = document.getElementById('groq-tts-audio-container');
+    const audioPreview = document.getElementById('groq-tts-audio-preview') as HTMLAudioElement;
+
+    form?.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const apiKey = getApiKey('groqKey');
+        if (!apiKey) {
+            alert('Groq API key not set.');
+            return;
+        }
+
+        const formData = new FormData(form);
+        const text = formData.get('text') as string;
+        const voice = formData.get('voice') as string;
+
+        generateButton.disabled = true;
+        audioContainer?.classList.add('hidden');
+        statusEl?.classList.remove('hidden');
+
+        try {
+            // This is a placeholder for the actual Groq TTS API call.
+            // Using a sample audio file.
+            await new Promise(resolve => setTimeout(resolve, 2000)); // Simulate generation time
+            const audioUrl = 'https://storage.googleapis.com/gtv-videos-bucket/sample/ForBiggerFun.mp4'; // Using a video file as placeholder since it works with <audio>
+            
+            audioPreview.src = audioUrl;
+            audioContainer?.classList.remove('hidden');
+
+            const webhookToggle = document.getElementById('groq-tts-webhook-toggle') as HTMLInputElement;
+            if (webhookToggle?.checked) {
+                sendWebhook('Groq TTS', 'success', { text, voice, audioUrl });
+            }
+        } catch (error) {
+            if(statusEl) {
+                const span = statusEl.querySelector('span');
+                if (span) span.textContent = 'Error generating speech.';
+            }
+            console.error(error);
+        } finally {
+            statusEl?.classList.add('hidden');
+            generateButton.disabled = false;
+        }
+    });
+}
+
+async function initializeGroqImagesPage() {
+    const form = document.getElementById('groq-image-form') as HTMLFormElement;
+    const generateButton = document.getElementById('groq-image-generate-button') as HTMLButtonElement;
+    const statusEl = document.getElementById('groq-image-status');
+    const imageContainer = document.getElementById('groq-image-container');
+    const imagePreview = document.getElementById('groq-image-preview') as HTMLImageElement;
+
+    form?.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const apiKey = getApiKey('groqKey');
+        if (!apiKey) {
+            alert('Groq API key not set.');
+            return;
+        }
+
+        const formData = new FormData(form);
+        const prompt = formData.get('prompt') as string;
+
+        generateButton.disabled = true;
+        imageContainer?.classList.add('hidden');
+        statusEl?.classList.remove('hidden');
+
+        try {
+            // This is a placeholder for the actual Groq Image API call.
+            // Using a placeholder image service.
+            await new Promise(resolve => setTimeout(resolve, 3000)); // Simulate generation time
+            const imageUrl = `https://source.unsplash.com/1024x1024/?${encodeURIComponent(prompt)}`;
+            
+            imagePreview.src = imageUrl;
+            imageContainer?.classList.remove('hidden');
+
+            const webhookToggle = document.getElementById('groq-image-webhook-toggle') as HTMLInputElement;
+            if (webhookToggle?.checked) {
+                sendWebhook('Groq Images', 'success', { prompt, imageUrl });
+            }
+        } catch (error) {
+            if(statusEl) {
+                const span = statusEl.querySelector('span');
+                if(span) span.textContent = 'Error generating image.';
+            }
+            console.error(error);
+        } finally {
+            statusEl?.classList.add('hidden');
+            generateButton.disabled = false;
+        }
+    });
+}
+
 
 // A generic initializer for all text generation pages
 interface TextGenConfig {
