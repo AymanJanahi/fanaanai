@@ -1,0 +1,52 @@
+<div class="bg-[#2a2b2e] px-8 pt-8 pb-6 rounded-2xl shadow-2xl w-full max-w-3xl mx-auto space-y-6">
+  <div class="space-y-2">
+    <h1 class="text-3xl font-bold text-white tracking-tight">Generate Text with DeepSeek</h1>
+    <p class="text-gray-400">
+      Utilize DeepSeek's specialized language and coding models.
+    </p>
+  </div>
+
+  <form id="deepseek-text-form" class="space-y-6">
+    <!-- Model -->
+    <div>
+      <label for="deepseek-text-model" class="block text-sm font-medium text-gray-300 mb-2">Model</label>
+      <select id="deepseek-text-model" name="model" class="form-select">
+        <option value="deepseek-chat" selected>DeepSeek Chat</option>
+        <option value="deepseek-coder">DeepSeek Coder</option>
+      </select>
+    </div>
+    <!-- Prompt -->
+    <div>
+      <label for="deepseek-text-prompt" class="block text-sm font-medium text-gray-300 mb-2">Prompt</label>
+      <textarea
+        id="deepseek-text-prompt"
+        name="prompt"
+        rows="8"
+        class="form-input"
+        placeholder="Enter your prompt here..."
+      ></textarea>
+    </div>
+    
+    <!-- Webhook Toggle -->
+    <div class="flex items-center justify-between pt-2">
+      <span class="text-sm font-medium text-gray-300">Send Webhook on Success</span>
+      <label class="toggle-switch-label">
+        <input type="checkbox" id="deepseek-text-webhook-toggle" class="toggle-switch-input" />
+        <span class="toggle-switch-slider"></span>
+      </label>
+    </div>
+
+    <!-- Generate Button -->
+    <div class="pt-2">
+      <button type="submit" id="deepseek-text-generate-button" class="btn btn-primary w-full">Generate Text</button>
+    </div>
+  </form>
+
+  <!-- Output -->
+  <div class="space-y-4 pt-4">
+    <h2 class="text-xl font-semibold text-white">Response</h2>
+    <div id="deepseek-text-response" class="p-4 bg-gray-800 rounded-lg text-gray-300 min-h-[100px]">
+        Your generated text will appear here.
+    </div>
+  </div>
+</div>

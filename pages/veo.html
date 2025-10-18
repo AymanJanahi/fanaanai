@@ -1,0 +1,67 @@
+<div class="bg-[#2a2b2e] px-8 pt-8 pb-6 rounded-2xl shadow-2xl w-full max-w-3xl mx-auto space-y-6">
+  <div class="space-y-2">
+    <h1 class="text-3xl font-bold text-white tracking-tight">Generate Video with Veo</h1>
+    <p class="text-gray-400">
+      Create high-quality videos from a text prompt. Video generation can take several minutes.
+    </p>
+  </div>
+
+  <form id="veo-form" class="space-y-6">
+    <!-- Prompt -->
+    <div>
+      <label for="veo-prompt" class="block text-sm font-medium text-gray-300 mb-2">Prompt</label>
+      <textarea
+        id="veo-prompt"
+        name="prompt"
+        rows="4"
+        class="form-input"
+        placeholder="e.g., A majestic lion roaring on a rocky outcrop at sunset"
+      ></textarea>
+    </div>
+
+    <!-- Video Options -->
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+      <div>
+        <label for="veo-resolution" class="block text-sm font-medium text-gray-300 mb-2">Resolution</label>
+        <select id="veo-resolution" name="resolution" class="form-select">
+          <option value="1080p">1080p</option>
+          <option value="720p" selected>720p</option>
+          <option value="360p">360p</option>
+        </select>
+      </div>
+      <div>
+        <label for="veo-aspect-ratio" class="block text-sm font-medium text-gray-300 mb-2">Aspect Ratio</label>
+        <select id="veo-aspect-ratio" name="aspectRatio" class="form-select">
+          <option value="16:9" selected>16:9 (Widescreen)</option>
+          <option value="9:16">9:16 (Vertical)</option>
+          <option value="1:1">1:1 (Square)</option>
+        </select>
+      </div>
+    </div>
+    
+    <!-- Webhook Toggle -->
+    <div class="flex items-center justify-between pt-2">
+      <span class="text-sm font-medium text-gray-300">Send Webhook on Success</span>
+      <label class="toggle-switch-label">
+        <input type="checkbox" id="veo-webhook-toggle" class="toggle-switch-input" />
+        <span class="toggle-switch-slider"></span>
+      </label>
+    </div>
+
+    <!-- Generate Button -->
+    <div class="pt-2">
+      <button type="submit" id="veo-generate-button" class="btn btn-primary w-full">Generate Video</button>
+    </div>
+  </form>
+
+  <!-- Status & Output -->
+  <div class="space-y-4 pt-4 text-center">
+    <div id="veo-status" class="hidden text-gray-400 flex items-center justify-center">
+      <div class="spinner"></div>
+      <span>Generating... this may take a few minutes.</span>
+    </div>
+    <div id="veo-video-container" class="hidden">
+      <video id="veo-video-preview" controls class="w-full rounded-lg"></video>
+    </div>
+  </div>
+</div>

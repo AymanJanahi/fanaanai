@@ -1,0 +1,54 @@
+<div class="bg-[#2a2b2e] px-8 pt-8 pb-6 rounded-2xl shadow-2xl w-full max-w-3xl mx-auto space-y-6">
+  <div class="space-y-2">
+    <h1 class="text-3xl font-bold text-white tracking-tight">Generate with OpenRouter</h1>
+    <p class="text-gray-400">
+      Access a wide variety of models through the OpenRouter API.
+    </p>
+  </div>
+
+  <form id="openrouter-form" class="space-y-6">
+    <!-- Model -->
+    <div>
+      <label for="openrouter-model" class="block text-sm font-medium text-gray-300 mb-2">Model</label>
+      <select id="openrouter-model" name="model" class="form-select">
+        <option value="google/gemini-flash-1.5" selected>Google: Gemini Flash 1.5</option>
+        <option value="anthropic/claude-3-haiku">Anthropic: Claude 3 Haiku</option>
+        <option value="mistralai/mistral-7b-instruct">Mistral 7B Instruct</option>
+        <option value="meta-llama/llama-3-8b-instruct">Meta: Llama 3 8B Instruct</option>
+      </select>
+    </div>
+    <!-- Prompt -->
+    <div>
+      <label for="openrouter-prompt" class="block text-sm font-medium text-gray-300 mb-2">Prompt</label>
+      <textarea
+        id="openrouter-prompt"
+        name="prompt"
+        rows="8"
+        class="form-input"
+        placeholder="Enter your prompt here..."
+      ></textarea>
+    </div>
+    
+    <!-- Webhook Toggle -->
+    <div class="flex items-center justify-between pt-2">
+      <span class="text-sm font-medium text-gray-300">Send Webhook on Success</span>
+      <label class="toggle-switch-label">
+        <input type="checkbox" id="openrouter-webhook-toggle" class="toggle-switch-input" />
+        <span class="toggle-switch-slider"></span>
+      </label>
+    </div>
+
+    <!-- Generate Button -->
+    <div class="pt-2">
+      <button type="submit" id="openrouter-generate-button" class="btn btn-primary w-full">Generate</button>
+    </div>
+  </form>
+
+  <!-- Output -->
+  <div class="space-y-4 pt-4">
+    <h2 class="text-xl font-semibold text-white">Response</h2>
+    <div id="openrouter-response" class="p-4 bg-gray-800 rounded-lg text-gray-300 min-h-[100px]">
+        Your generated text will appear here.
+    </div>
+  </div>
+</div>

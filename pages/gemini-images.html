@@ -1,0 +1,47 @@
+<div class="bg-[#2a2b2e] px-8 pt-8 pb-6 rounded-2xl shadow-2xl w-full max-w-3xl mx-auto space-y-6">
+  <div class="space-y-2">
+    <h1 class="text-3xl font-bold text-white tracking-tight">Generate Images with Gemini</h1>
+    <p class="text-gray-400">
+      Create rich, high-quality images from text prompts with Google's Gemini models.
+    </p>
+  </div>
+
+  <form id="gemini-image-form" class="space-y-6">
+    <!-- Prompt -->
+    <div>
+      <label for="gemini-image-prompt" class="block text-sm font-medium text-gray-300 mb-2">Prompt</label>
+      <textarea
+        id="gemini-image-prompt"
+        name="prompt"
+        rows="4"
+        class="form-input"
+        placeholder="e.g., An abstract painting of a neural network in vibrant colors"
+      ></textarea>
+    </div>
+    
+    <!-- Webhook Toggle -->
+    <div class="flex items-center justify-between pt-2">
+      <span class="text-sm font-medium text-gray-300">Send Webhook on Success</span>
+      <label class="toggle-switch-label">
+        <input type="checkbox" id="gemini-image-webhook-toggle" class="toggle-switch-input" />
+        <span class="toggle-switch-slider"></span>
+      </label>
+    </div>
+
+    <!-- Generate Button -->
+    <div class="pt-2">
+      <button type="submit" id="gemini-image-generate-button" class="btn btn-primary w-full">Generate Image</button>
+    </div>
+  </form>
+
+  <!-- Status & Output -->
+  <div class="space-y-4 pt-4 text-center">
+    <div id="gemini-image-status" class="hidden text-gray-400">
+      <div class="spinner"></div>
+      Generating...
+    </div>
+    <div id="gemini-image-container" class="hidden">
+      <img id="gemini-image-preview" class="w-full max-w-md mx-auto rounded-lg" />
+    </div>
+  </div>
+</div>
