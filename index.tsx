@@ -1,4 +1,17 @@
 import './index.css';
+import homeContent from './pages/home.html?raw';
+import veoContent from './pages/veo.html?raw';
+import geminiImagesContent from './pages/gemini-images.html?raw';
+import groqTextContent from './pages/groq-text.html?raw';
+import groqTtsContent from './pages/groq-tts.html?raw';
+import groqImagesContent from './pages/groq-images.html?raw';
+import claudeTextContent from './pages/claude-text.html?raw';
+import chatgptTextContent from './pages/chatgpt-text.html?raw';
+import deepseekTextContent from './pages/deepseek-text.html?raw';
+import openrouterContent from './pages/openrouter.html?raw';
+import apiKeysContent from './pages/api-keys.html?raw';
+import notFoundContent from './pages/not-found.html?raw';
+
 
 // Type definitions for API keys
 // FIX: Removed the index signature `[key: string]: string | null;`.
@@ -16,12 +29,16 @@ type ApiKeys = {
 };
 
 // --- ROUTER & NAVIGATION ---
+type RouteConfig = {
+    content: string;
+    init: () => void;
+};
 
-const routes: { [key: string]: { page: string; init: () => void } } = {
-  '#home': { page: '/pages/home.html', init: initializeHomePage },
-  '#veo': { page: '/pages/veo.html', init: initializeVeoPage },
-  '#gemini-images': { page: '/pages/gemini-images.html', init: initializeGeminiImagesPage },
-  '#groq-text': { page: '/pages/groq-text.html', init: () => initializeTextGenerationPage({
+const routes: { [key: string]: RouteConfig } = {
+  '#home': { content: homeContent, init: initializeHomePage },
+  '#veo': { content: veoContent, init: initializeVeoPage },
+  '#gemini-images': { content: geminiImagesContent, init: initializeGeminiImagesPage },
+  '#groq-text': { content: groqTextContent, init: () => initializeTextGenerationPage({
       pageId: 'groq-text',
       formId: 'groq-text-form',
       apiUrl: 'https://api.groq.com/openai/v1/chat/completions',
@@ -32,9 +49,9 @@ const routes: { [key: string]: { page: string; init: () => void } } = {
       }),
     })
   },
-  '#groq-tts': { page: '/pages/groq-tts.html', init: initializeGroqTtsPage },
-  '#groq-images': { page: '/pages/groq-images.html', init: initializeGroqImagesPage },
-  '#claude-text': { page: '/pages/claude-text.html', init: () => initializeTextGenerationPage({
+  '#groq-tts': { content: groqTtsContent, init: initializeGroqTtsPage },
+  '#groq-images': { content: groqImagesContent, init: initializeGroqImagesPage },
+  '#claude-text': { content: claudeTextContent, init: () => initializeTextGenerationPage({
       pageId: 'claude-text',
       formId: 'claude-text-form',
       apiUrl: 'https://api.anthropic.com/v1/messages', // Note: This is a placeholder. A proxy might be needed for CORS.
@@ -51,7 +68,7 @@ const routes: { [key: string]: { page: string; init: () => void } } = {
       }
     })
   },
-  '#chatgpt-text': { page: '/pages/chatgpt-text.html', init: () => initializeTextGenerationPage({
+  '#chatgpt-text': { content: chatgptTextContent, init: () => initializeTextGenerationPage({
       pageId: 'chatgpt-text',
       formId: 'chatgpt-text-form',
       apiUrl: 'https://api.openai.com/v1/chat/completions',
@@ -62,7 +79,7 @@ const routes: { [key: string]: { page: string; init: () => void } } = {
       }),
     })
   },
-  '#deepseek-text': { page: '/pages/deepseek-text.html', init: () => initializeTextGenerationPage({
+  '#deepseek-text': { content: deepseekTextContent, init: () => initializeTextGenerationPage({
       pageId: 'deepseek-text',
       formId: 'deepseek-text-form',
       apiUrl: 'https://api.deepseek.com/chat/completions',
@@ -73,7 +90,7 @@ const routes: { [key: string]: { page: string; init: () => void } } = {
       }),
     })
   },
-  '#openrouter': { page: '/pages/openrouter.html', init: () => initializeTextGenerationPage({
+  '#openrouter': { content: openrouterContent, init: () => initializeTextGenerationPage({
       pageId: 'openrouter',
       formId: 'openrouter-form',
       apiUrl: 'https://openrouter.ai/api/v1/chat/completions',
@@ -84,30 +101,25 @@ const routes: { [key: string]: { page: string; init: () => void } } = {
       }),
     })
   },
-  '#api-keys': { page: '/pages/api-keys.html', init: initializeApiKeysPage },
+  '#api-keys': { content: apiKeysContent, init: initializeApiKeysPage },
 };
 
-async function navigate() {
+function navigate() {
   const hash = window.location.hash || '#home';
   const contentRoot = document.getElementById('content-root');
   if (!contentRoot) return;
 
-  const routeConfig = routes[hash] || { page: '/pages/not-found.html', init: () => {} };
+  const routeConfig = routes[hash] || { content: notFoundContent, init: () => {} };
 
-  try {
-    const response = await fetch(routeConfig.page);
-    contentRoot.innerHTML = await response.text();
-    // Use setTimeout to ensure the DOM is ready before initialization
-    setTimeout(() => {
-        if (routeConfig.init) {
-            routeConfig.init();
-        }
-    }, 0);
-  } catch (error) {
-    contentRoot.innerHTML = '<p>Error loading page.</p>';
-  }
+  contentRoot.innerHTML = routeConfig.content;
+  // Use setTimeout to ensure the DOM is ready for initialization scripts
+  setTimeout(() => {
+    if (routeConfig.init) {
+        routeConfig.init();
+    }
+  }, 0);
 
-  // Update active link
+  // Update active link styling
   document.querySelectorAll('.nav-link').forEach(link => {
     const anchor = link as HTMLAnchorElement;
     if (anchor.hash === hash) {
