@@ -578,6 +578,7 @@ function initGroqTtsPage() {
     form.onsubmit = async (e) => {
         e.preventDefault();
         
+        statusEl.innerHTML = `<div class="spinner"></div> <span>Generating speech...</span>`;
         statusEl.classList.remove('hidden');
         container.classList.add('hidden');
         downloadLink.classList.add('hidden');
@@ -608,6 +609,8 @@ function initGroqTtsPage() {
 
             const blob = await response.blob();
             const url = URL.createObjectURL(blob);
+            
+            statusEl.classList.add('hidden');
             audioPreview.src = url;
             downloadLink.href = url;
             container.classList.remove('hidden');
@@ -621,9 +624,6 @@ function initGroqTtsPage() {
         } catch (error) {
             statusEl.textContent = `Error: ${error instanceof Error ? error.message : 'Unknown error'}`;
         } finally {
-             if (container.classList.contains('hidden')) {
-                 statusEl.classList.add('hidden');
-            }
             toggleLoading('groq-tts-generate-button', false);
         }
     };
@@ -718,13 +718,16 @@ document.addEventListener('DOMContentLoaded', () => {
     router(); // Initial page load
 });
 
-// FIX: Define a named interface `AIStudio` and use it for `window.aistudio` to resolve conflicts with other global declarations.
+// FIX: The previous inlined type for `aistudio` caused a declaration conflict.
+// By defining and using a named interface `AIStudio`, we allow TypeScript
+// to correctly merge this declaration with any other existing declarations for `window.aistudio`.
 declare global {
     interface AIStudio {
         hasSelectedApiKey: () => Promise<boolean>;
         openSelectKey: () => Promise<void>;
     }
     interface Window {
-        aistudio: AIStudio;
+        // FIX: Add readonly modifier to resolve "All declarations of 'aistudio' must have identical modifiers." error.
+        readonly aistudio: AIStudio;
     }
 }
