@@ -1,0 +1,57 @@
+<div class="bg-[#2a2b2e] px-8 pt-8 pb-6 rounded-2xl shadow-2xl w-full max-w-3xl mx-auto space-y-6">
+  <div class="space-y-2">
+    <h1 class="text-3xl font-bold text-white tracking-tight">Generate Images with Hugging Face</h1>
+    <p class="text-gray-400">
+      Create images from text prompts using popular open-source models.
+    </p>
+  </div>
+
+  <form id="hf-image-form" class="space-y-6">
+    <!-- Model -->
+    <div>
+      <label for="hf-image-model" class="block text-sm font-medium text-gray-300 mb-2">Model</label>
+      <select id="hf-image-model" name="model" class="form-select">
+        <option value="stabilityai/stable-diffusion-xl-base-1.0" selected>Stable Diffusion XL</option>
+        <option value="runwayml/stable-diffusion-v1-5">Stable Diffusion 1.5</option>
+        <option value="prompthero/openjourney-v4">OpenJourney v4</option>
+        <option value="SG161222/Realistic_Vision_V5.1_noVAE">Realistic Vision V5.1</option>
+      </select>
+    </div>
+    <!-- Prompt -->
+    <div>
+      <label for="hf-image-prompt" class="block text-sm font-medium text-gray-300 mb-2">Prompt</label>
+      <textarea
+        id="hf-image-prompt"
+        name="prompt"
+        rows="4"
+        class="form-input"
+        placeholder="e.g., A futuristic city skyline at dusk, with flying cars"
+      ></textarea>
+    </div>
+    
+    <!-- Webhook Toggle -->
+    <div class="flex items-center justify-between pt-2">
+      <span class="text-sm font-medium text-gray-300">Send Webhook on Success</span>
+      <label class="toggle-switch-label">
+        <input type="checkbox" id="hf-image-webhook-toggle" class="toggle-switch-input" />
+        <span class="toggle-switch-slider"></span>
+      </label>
+    </div>
+
+    <!-- Generate Button -->
+    <div class="pt-2">
+      <button type="submit" id="hf-image-generate-button" class="btn btn-primary w-full">Generate Image</button>
+    </div>
+  </form>
+
+  <!-- Status & Output -->
+  <div class="space-y-4 pt-4 text-center">
+    <div id="hf-image-status" class="hidden text-gray-400 flex items-center justify-center">
+      <div class="spinner"></div>
+      <span>Generating image... This can take up to a minute.</span>
+    </div>
+    <div id="hf-image-container" class="hidden">
+      <img id="hf-image-preview" class="w-full max-w-md mx-auto rounded-lg" />
+    </div>
+  </div>
+</div>

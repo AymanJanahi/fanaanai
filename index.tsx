@@ -5,7 +5,8 @@ import veoHtml from './pages/veo.html?raw';
 import geminiImagesHtml from './pages/gemini-images.html?raw';
 import groqTextHtml from './pages/groq-text.html?raw';
 import groqTtsHtml from './pages/groq-tts.html?raw';
-import groqImagesHtml from './pages/groq-images.html?raw';
+import huggingfaceImagesHtml from './pages/huggingface-images.html?raw';
+import huggingfaceVideoHtml from './pages/huggingface-video.html?raw';
 import claudeTextHtml from './pages/claude-text.html?raw';
 import chatgptTextHtml from './pages/chatgpt-text.html?raw';
 import deepseekTextHtml from './pages/deepseek-text.html?raw';
@@ -14,9 +15,10 @@ import apiKeysHtml from './pages/api-keys.html?raw';
 import notFoundHtml from './pages/not-found.html?raw';
 
 // --- TYPE DEFINITIONS ---
-// FIX: Inlined the AIStudio interface definition to resolve type declaration errors by avoiding potential name collisions.
 declare global {
     interface Window {
+        // FIX: Inlined the AIStudio type definition to resolve a TypeScript declaration conflict.
+        // The previous separate interface was likely clashing with another definition.
         aistudio: {
             hasSelectedApiKey: () => Promise<boolean>;
             openSelectKey: () => Promise<void>;
@@ -32,6 +34,7 @@ interface ApiKeys {
     anthropicKey?: string;
     openRouterKey?: string;
     deepSeekKey?: string;
+    huggingFaceKey?: string;
 }
 
 // --- CONSTANTS ---
@@ -65,6 +68,7 @@ const initApiKeysPage = () => {
         anthropicKey: form.querySelector('#anthropicKey') as HTMLInputElement,
         openRouterKey: form.querySelector('#openRouterKey') as HTMLInputElement,
         deepSeekKey: form.querySelector('#deepSeekKey') as HTMLInputElement,
+        huggingFaceKey: form.querySelector('#huggingFaceKey') as HTMLInputElement,
     };
 
     const saveButton = document.getElementById('save-keys-button');
@@ -165,7 +169,10 @@ const initVeoPage = async () => {
 
     selectKeyButton.addEventListener('click', async () => {
         await window.aistudio.openSelectKey();
-        await checkApiKey();
+        // FIX: Assume key selection was successful to avoid race conditions.
+        // The API call will fail if the key is invalid, which is handled below.
+        keyInfo.classList.add('hidden');
+        pageContent.classList.remove('hidden');
     });
 
     form.addEventListener('submit', async (e) => {
@@ -269,20 +276,26 @@ const initGeminiImagesPage = () => {
     });
 };
 
-const initGroqImagesPage = () => {
-    // This uses Gemini as a backend since Groq doesn't have an image model.
-    const form = document.getElementById('groq-image-form') as HTMLFormElement;
+const initHuggingFaceImagesPage = () => {
+    const form = document.getElementById('hf-image-form') as HTMLFormElement;
     if (!form) return;
     
-    const generateButton = document.getElementById('groq-image-generate-button') as HTMLButtonElement;
-    const statusEl = document.getElementById('groq-image-status') as HTMLElement;
-    const imageContainer = document.getElementById('groq-image-container') as HTMLElement;
-    const imagePreview = document.getElementById('groq-image-preview') as HTMLImageElement;
+    const generateButton = document.getElementById('hf-image-generate-button') as HTMLButtonElement;
+    const statusEl = document.getElementById('hf-image-status') as HTMLElement;
+    const imageContainer = document.getElementById('hf-image-container') as HTMLElement;
+    const imagePreview = document.getElementById('hf-image-preview') as HTMLImageElement;
     
     form.addEventListener('submit', async (e) => {
         e.preventDefault();
+        const apiKeys = getApiKeys();
+        if (!apiKeys.huggingFaceKey) {
+            alert('Please set your Hugging Face API key in the API Keys page.');
+            return;
+        }
+
         const formData = new FormData(form);
         const prompt = formData.get('prompt') as string;
+        const model = formData.get('model') as string;
 
         if (!prompt.trim()) {
             alert('Please enter a prompt.');
@@ -294,21 +307,25 @@ const initGroqImagesPage = () => {
         imageContainer.classList.add('hidden');
         
         try {
-            const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-            const response = await ai.models.generateContent({
-                model: 'gemini-2.5-flash-image',
-                contents: { parts: [{ text: prompt }] },
-                // FIX: Use Modality.IMAGE enum for responseModalities as per best practices.
-                config: { responseModalities: [Modality.IMAGE] },
+            const response = await fetch(`https://api-inference.huggingface.co/models/${model}`, {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${apiKeys.huggingFaceKey}`,
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ inputs: prompt }),
             });
-            const part = response.candidates[0].content.parts[0];
-            if (part && part.inlineData) {
-                const base64ImageBytes = part.inlineData.data;
-                imagePreview.src = `data:image/png;base64,${base64ImageBytes}`;
-                imageContainer.classList.remove('hidden');
-            } else {
-                throw new Error("No image data returned from API.");
+
+            if (!response.ok) {
+                const errorData = await response.json();
+                throw new Error(errorData.error || `HTTP error! status: ${response.status}`);
             }
+
+            const imageBlob = await response.blob();
+            const imageUrl = URL.createObjectURL(imageBlob);
+            imagePreview.src = imageUrl;
+            imageContainer.classList.remove('hidden');
+
         } catch (error) {
             console.error('Image generation failed:', error);
             alert(`An error occurred: ${error instanceof Error ? error.message : String(error)}`);
@@ -318,6 +335,132 @@ const initGroqImagesPage = () => {
         }
     });
 };
+
+const initHuggingFaceVideoPage = () => {
+    const form = document.getElementById('hf-video-form') as HTMLFormElement;
+    if (!form) return;
+
+    const modeToggle = form.querySelector('#hf-video-mode') as HTMLDivElement;
+    const textModeButton = form.querySelector('#hf-video-mode-text') as HTMLButtonElement;
+    const imageModeButton = form.querySelector('#hf-video-mode-image') as HTMLButtonElement;
+    const promptInputContainer = form.querySelector('#hf-video-prompt-container') as HTMLDivElement;
+    const imageInputContainer = form.querySelector('#hf-video-image-container') as HTMLDivElement;
+    const imageInput = form.querySelector('#hf-video-image') as HTMLInputElement;
+    const modelSelect = form.querySelector('#hf-video-model') as HTMLSelectElement;
+    const generateButton = form.querySelector('#hf-video-generate-button') as HTMLButtonElement;
+    const statusEl = document.getElementById('hf-video-status') as HTMLElement;
+    const videoContainer = document.getElementById('hf-video-container') as HTMLElement;
+    const videoPreview = document.getElementById('hf-video-preview') as HTMLVideoElement;
+    const downloadLink = document.getElementById('hf-video-download-link') as HTMLAnchorElement;
+
+    const models = {
+        text: { 'Zeroscope v2': 'cerspense/zeroscope_v2_576w' },
+        image: { 'Stable Video Diffusion': 'stabilityai/stable-video-diffusion-img2vid-xt' }
+    };
+    let currentMode: 'text' | 'image' = 'text';
+
+    const updateFormForMode = () => {
+        modelSelect.innerHTML = '';
+        const modelSet = models[currentMode];
+        Object.entries(modelSet).forEach(([name, id]) => {
+            const option = document.createElement('option');
+            option.value = id;
+            option.textContent = name;
+            modelSelect.appendChild(option);
+        });
+
+        if (currentMode === 'text') {
+            textModeButton.classList.add('bg-indigo-600');
+            textModeButton.classList.remove('bg-gray-700');
+            imageModeButton.classList.remove('bg-indigo-600');
+            imageModeButton.classList.add('bg-gray-700');
+            promptInputContainer.classList.remove('hidden');
+            imageInputContainer.classList.add('hidden');
+        } else {
+            imageModeButton.classList.add('bg-indigo-600');
+            imageModeButton.classList.remove('bg-gray-700');
+            textModeButton.classList.remove('bg-indigo-600');
+            textModeButton.classList.add('bg-gray-700');
+            promptInputContainer.classList.add('hidden');
+            imageInputContainer.classList.remove('hidden');
+        }
+    };
+
+    textModeButton.addEventListener('click', () => {
+        currentMode = 'text';
+        updateFormForMode();
+    });
+
+    imageModeButton.addEventListener('click', () => {
+        currentMode = 'image';
+        updateFormForMode();
+    });
+
+    form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const apiKeys = getApiKeys();
+        if (!apiKeys.huggingFaceKey) {
+            alert('Please set your Hugging Face API key in the API Keys page.');
+            return;
+        }
+
+        const formData = new FormData(form);
+        const model = formData.get('model') as string;
+        let body: BodyInit;
+        let headers: HeadersInit = { 'Authorization': `Bearer ${apiKeys.huggingFaceKey}` };
+
+        if (currentMode === 'text') {
+            const prompt = formData.get('prompt') as string;
+            if (!prompt.trim()) {
+                alert('Please enter a prompt.');
+                return;
+            }
+            headers['Content-Type'] = 'application/json';
+            body = JSON.stringify({ inputs: prompt });
+        } else { // image mode
+            const imageFile = imageInput.files?.[0];
+            if (!imageFile) {
+                alert('Please select an image file.');
+                return;
+            }
+            body = imageFile;
+        }
+
+        generateButton.disabled = true;
+        statusEl.classList.remove('hidden');
+        videoContainer.classList.add('hidden');
+
+        try {
+            const response = await fetch(`https://api-inference.huggingface.co/models/${model}`, {
+                method: 'POST',
+                headers,
+                body,
+            });
+
+             if (!response.ok) {
+                const errorData = await response.json();
+                throw new Error(errorData.error || `HTTP error! status: ${response.status}`);
+            }
+
+            const videoBlob = await response.blob();
+            const videoUrl = URL.createObjectURL(videoBlob);
+            videoPreview.src = videoUrl;
+            downloadLink.href = videoUrl;
+            videoContainer.classList.remove('hidden');
+
+        } catch (error) {
+             console.error('Video generation failed:', error);
+            alert(`An error occurred: ${error instanceof Error ? error.message : String(error)}`);
+        } finally {
+            generateButton.disabled = false;
+            statusEl.classList.add('hidden');
+        }
+    });
+
+    // Initial setup
+    updateFormForMode();
+};
+
 
 const initGroqTtsPage = () => {
     const form = document.getElementById('groq-tts-form') as HTMLFormElement;
@@ -329,6 +472,9 @@ const initGroqTtsPage = () => {
     const statusEl = document.getElementById('groq-tts-status') as HTMLElement;
     const audioContainer = document.getElementById('groq-tts-audio-container') as HTMLElement;
     const audioPreview = document.getElementById('groq-tts-audio-preview') as HTMLAudioElement;
+    const downloadLink = document.getElementById('groq-tts-download-link') as HTMLAnchorElement;
+
+    let currentAudioBlob: Blob | null = null;
 
     const voices = {
         'playai-tts': {
@@ -385,6 +531,9 @@ const initGroqTtsPage = () => {
         generateButton.disabled = true;
         statusEl.classList.remove('hidden');
         audioContainer.classList.add('hidden');
+        downloadLink.classList.add('hidden');
+        currentAudioBlob = null;
+
 
         try {
             const response = await fetch('https://api.groq.com/openai/v1/audio/speech', {
@@ -405,11 +554,13 @@ const initGroqTtsPage = () => {
                 throw new Error(errorData.error.message || `HTTP error! status: ${response.status}`);
             }
 
-            const audioBlob = await response.blob();
-            const audioUrl = URL.createObjectURL(audioBlob);
+            currentAudioBlob = await response.blob();
+            const audioUrl = URL.createObjectURL(currentAudioBlob);
             audioPreview.src = audioUrl;
             audioPreview.play();
             audioContainer.classList.remove('hidden');
+            downloadLink.href = audioUrl;
+            downloadLink.classList.remove('hidden');
 
         } catch (error) {
             console.error('TTS generation failed:', error);
@@ -505,10 +656,12 @@ const createTextStreamer = (
 
 
 // --- ROUTING ---
-const routes: Record<string, { html: string, init?: () => void }> = {
+const routes: Record<string, { html: string, init?: () => void | Promise<void> }> = {
     'home': { html: homeHtml },
     'veo': { html: veoHtml, init: initVeoPage },
     'gemini-images': { html: geminiImagesHtml, init: initGeminiImagesPage },
+    'huggingface-images': { html: huggingfaceImagesHtml, init: initHuggingFaceImagesPage },
+    'huggingface-video': { html: huggingfaceVideoHtml, init: initHuggingFaceVideoPage },
     'groq-text': { 
         html: groqTextHtml, 
         init: () => createTextStreamer(
@@ -524,7 +677,6 @@ const routes: Record<string, { html: string, init?: () => void }> = {
         ) 
     },
     'groq-tts': { html: groqTtsHtml, init: initGroqTtsPage },
-    'groq-images': { html: groqImagesHtml, init: initGroqImagesPage },
     'claude-text': { 
         html: claudeTextHtml,
         init: () => createTextStreamer(
