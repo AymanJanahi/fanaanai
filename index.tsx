@@ -1,3 +1,4 @@
+import { GoogleGenAI, Modality } from '@google/genai';
 import './index.css';
 import homeContent from './pages/home.html?raw';
 import veoContent from './pages/veo.html?raw';
@@ -12,12 +13,19 @@ import openrouterContent from './pages/openrouter.html?raw';
 import apiKeysContent from './pages/api-keys.html?raw';
 import notFoundContent from './pages/not-found.html?raw';
 
+// FIX: Replaced inline object with a named interface `AIStudio` to resolve type conflicts for `window.aistudio`.
+// Type definitions for window.aistudio
+declare global {
+    interface AIStudio {
+        hasSelectedApiKey: () => Promise<boolean>;
+        openSelectKey: () => Promise<void>;
+    }
+    interface Window {
+        aistudio: AIStudio;
+    }
+}
 
 // Type definitions for API keys
-// FIX: Removed the index signature `[key: string]: string | null;`.
-// This was causing `keyof ApiKeys` to resolve to `string | number`, which is not
-// assignable to functions expecting a `string` type, such as localStorage methods.
-// By removing it, `keyof ApiKeys` is correctly typed as a union of its string keys.
 type ApiKeys = {
   n8nWebhookUrl: string | null;
   googleGenAIKey: string | null;
@@ -275,51 +283,102 @@ async function initializeVeoPage() {
     const statusTextEl = statusEl?.querySelector('span');
     const videoContainer = document.getElementById('veo-video-container');
     const videoPreview = document.getElementById('veo-video-preview') as HTMLVideoElement;
+    const downloadLink = document.getElementById('veo-download-link') as HTMLAnchorElement;
+
+    const selectKeyButton = document.getElementById('veo-select-key-button') as HTMLButtonElement;
+    const keyInfoDiv = document.getElementById('veo-key-info') as HTMLDivElement;
+    const pageContentDiv = document.getElementById('veo-page-content') as HTMLDivElement;
+
+    const checkApiKey = async () => {
+        if (await window.aistudio.hasSelectedApiKey()) {
+            keyInfoDiv.classList.add('hidden');
+            pageContentDiv.classList.remove('hidden');
+            return true;
+        } else {
+            keyInfoDiv.classList.remove('hidden');
+            pageContentDiv.classList.add('hidden');
+            return false;
+        }
+    };
+    
+    selectKeyButton?.addEventListener('click', async () => {
+        await window.aistudio.openSelectKey();
+        keyInfoDiv.classList.add('hidden');
+        pageContentDiv.classList.remove('hidden');
+    });
 
     form?.addEventListener('submit', async (e) => {
         e.preventDefault();
-        const apiKey = getApiKey('googleGenAIKey');
+        
+        if (!await checkApiKey()) {
+             alert('Please select a Google GenAI API key first.');
+             return;
+        }
+        
+        const apiKey = process.env.API_KEY; 
         if (!apiKey) {
-            alert('Google GenAI API key not set.');
+            alert('API key not found. Please try selecting a key again.');
+            await checkApiKey();
             return;
         }
 
         const formData = new FormData(form);
         const prompt = formData.get('prompt') as string;
+        const resolution = formData.get('resolution') as '1080p' | '720p';
+        const aspectRatio = formData.get('aspectRatio') as '16:9' | '9:16';
 
         generateButton.disabled = true;
         videoContainer?.classList.add('hidden');
         statusEl?.classList.remove('hidden');
 
         const progressMessages = [
-            "Initializing request...",
-            "Warming up the Veo model...",
-            "Generating video frames...",
-            "Compositing video...",
-            "Finalizing output...",
-            "This is taking longer than usual...",
+            "Initializing request...", "Warming up the Veo model...", "Generating video frames...", 
+            "Compositing video...", "Finalizing output...", "This is taking longer than usual..."
         ];
         let messageIndex = 0;
         if(statusTextEl) statusTextEl.textContent = progressMessages[messageIndex];
         const progressInterval = setInterval(() => {
             messageIndex = (messageIndex + 1) % progressMessages.length;
             if(statusTextEl) statusTextEl.textContent = progressMessages[messageIndex];
-        }, 5000); // Change message every 5 seconds
+        }, 8000);
 
         try {
-            // This is a placeholder for the actual Veo API call which is more complex (long polling)
-            await new Promise(resolve => setTimeout(resolve, 20000)); // Simulate long generation time
-            const videoUrl = 'https://storage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4';
-            
-            videoPreview.src = videoUrl;
-            videoContainer?.classList.remove('hidden');
+            const ai = new GoogleGenAI({ apiKey });
+            let operation = await ai.models.generateVideos({
+                model: 'veo-3.1-fast-generate-preview',
+                prompt: prompt,
+                config: { numberOfVideos: 1, resolution, aspectRatio }
+            });
 
-            const webhookToggle = document.getElementById('veo-webhook-toggle') as HTMLInputElement;
-            if (webhookToggle?.checked) {
-                sendWebhook('Veo', 'success', { prompt, videoUrl });
+            while (!operation.done) {
+                await new Promise(resolve => setTimeout(resolve, 10000));
+                operation = await ai.operations.getVideosOperation({ operation });
+            }
+
+            const videoUri = operation.response?.generatedVideos?.[0]?.video?.uri;
+            if (videoUri) {
+                const fullVideoUrl = `${videoUri}&key=${apiKey}`;
+                videoPreview.src = fullVideoUrl;
+                downloadLink.href = fullVideoUrl;
+                videoContainer?.classList.remove('hidden');
+
+                const webhookToggle = document.getElementById('veo-webhook-toggle') as HTMLInputElement;
+                if (webhookToggle?.checked) {
+                    sendWebhook('Veo', 'success', { prompt, videoUrl: fullVideoUrl });
+                }
+            } else {
+                throw new Error('Video generation finished but no video URI was returned.');
             }
         } catch (error) {
-            if(statusTextEl) statusTextEl.textContent = 'Error generating video.';
+            let message = 'Error generating video.';
+            if (error instanceof Error) {
+                message = error.message;
+                if (message.includes('Requested entity was not found')) {
+                    message = 'API Key is invalid or not found. Please select a valid key.';
+                    await checkApiKey();
+                }
+            }
+            if(statusTextEl) statusTextEl.textContent = message;
             console.error(error);
         } finally {
             clearInterval(progressInterval);
@@ -327,6 +386,8 @@ async function initializeVeoPage() {
             generateButton.disabled = false;
         }
     });
+
+    checkApiKey();
 }
 
 async function initializeGeminiImagesPage() {
@@ -352,20 +413,35 @@ async function initializeGeminiImagesPage() {
         statusEl?.classList.remove('hidden');
 
         try {
-            // This is a placeholder for the actual Gemini Image API call.
-            // Using a placeholder image service.
-            await new Promise(resolve => setTimeout(resolve, 3000)); // Simulate generation time
-            const imageUrl = `https://source.unsplash.com/1024x1024/?${encodeURIComponent(prompt)}`;
-            
-            imagePreview.src = imageUrl;
-            imageContainer?.classList.remove('hidden');
+            const ai = new GoogleGenAI({ apiKey });
+            const response = await ai.models.generateImages({
+                model: 'imagen-4.0-generate-001',
+                prompt: prompt,
+                config: {
+                  numberOfImages: 1,
+                  outputMimeType: 'image/jpeg',
+                  aspectRatio: '1:1',
+                },
+            });
 
-            const webhookToggle = document.getElementById('gemini-image-webhook-toggle') as HTMLInputElement;
-            if (webhookToggle?.checked) {
-                sendWebhook('Gemini Images', 'success', { prompt, imageUrl });
+            if (response.generatedImages && response.generatedImages.length > 0) {
+                const base64ImageBytes = response.generatedImages[0].image.imageBytes;
+                const imageUrl = `data:image/jpeg;base64,${base64ImageBytes}`;
+                imagePreview.src = imageUrl;
+                imageContainer?.classList.remove('hidden');
+
+                const webhookToggle = document.getElementById('gemini-image-webhook-toggle') as HTMLInputElement;
+                if (webhookToggle?.checked) {
+                    sendWebhook('Gemini Images', 'success', { prompt, imageUrl: 'base64_image_data' });
+                }
+            } else {
+                 throw new Error('No image was generated by the API.');
             }
         } catch (error) {
-            if(statusEl) statusEl.textContent = 'Error generating image.';
+            if(statusEl) {
+                const message = error instanceof Error ? error.message : 'An unknown error occurred.';
+                statusEl.textContent = `Error: ${message}`;
+            }
             console.error(error);
         } finally {
             statusEl?.classList.add('hidden');
@@ -389,12 +465,12 @@ async function initializeGroqTtsPage() {
 
     const ttsVoices: VoicesMap = {
         'playai-tts': {
-            Male: ['shimmer', 'echo', 'onyx', 'dusk', 'drake', 'loki'],
-            Female: ['alloy', 'fable', 'juniper', 'nova', 'aurora', 'luna', 'hera', 'ember']
+            Male: [ 'Atlas-PlayAI', 'Basil-PlayAI', 'Briggs-PlayAI', 'Calum-PlayAI', 'Chip-PlayAI', 'Cillian-PlayAI', 'Fritz-PlayAI', 'Mason-PlayAI', 'Mikail-PlayAI', 'Mitch-PlayAI', 'Quinn-PlayAI', 'Thunder-PlayAI' ],
+            Female: [ 'Arista-PlayAI', 'Celeste-PlayAI', 'Cheyenne-PlayAI', 'Deedee-PlayAI', 'Gail-PlayAI', 'Indigo-PlayAI', 'Mamaw-PlayAI' ]
         },
         'playai-tts-arabic': {
-            Male: ['dusk', 'drake'],
-            Female: ['luna', 'hera']
+            Male: ['Ahmad-PlayAI', 'Khalid-PlayAI', 'Nasser-PlayAI'],
+            Female: ['Amira-PlayAI']
         }
     };
 
@@ -409,7 +485,7 @@ async function initializeGroqTtsPage() {
             voices[gender].forEach(voice => {
                 const option = document.createElement('option');
                 option.value = voice;
-                option.textContent = voice.charAt(0).toUpperCase() + voice.slice(1);
+                option.textContent = voice.replace('-PlayAI', '');
                 optgroup.appendChild(option);
             });
             voiceSelect.appendChild(optgroup);
@@ -500,9 +576,9 @@ async function initializeGroqImagesPage() {
 
     form?.addEventListener('submit', async (e) => {
         e.preventDefault();
-        const apiKey = getApiKey('groqKey');
+        const apiKey = getApiKey('googleGenAIKey');
         if (!apiKey) {
-            alert('Groq API key not set.');
+            alert('Google GenAI API key not set. This page uses it as Groq does not have an image API.');
             return;
         }
 
@@ -514,22 +590,42 @@ async function initializeGroqImagesPage() {
         statusEl?.classList.remove('hidden');
 
         try {
-            // This is a placeholder for the actual Groq Image API call.
-            // Using a placeholder image service.
-            await new Promise(resolve => setTimeout(resolve, 3000)); // Simulate generation time
-            const imageUrl = `https://source.unsplash.com/1024x1024/?${encodeURIComponent(prompt)}`;
-            
-            imagePreview.src = imageUrl;
-            imageContainer?.classList.remove('hidden');
+            const ai = new GoogleGenAI({ apiKey });
+            const response = await ai.models.generateContent({
+              model: 'gemini-2.5-flash-image',
+              contents: {
+                parts: [{ text: prompt }],
+              },
+              config: {
+                  responseModalities: [Modality.IMAGE],
+              },
+            });
 
-            const webhookToggle = document.getElementById('groq-image-webhook-toggle') as HTMLInputElement;
-            if (webhookToggle?.checked) {
-                sendWebhook('Groq Images', 'success', { prompt, imageUrl });
+            let imageUrl = '';
+            for (const part of response.candidates[0].content.parts) {
+              if (part.inlineData) {
+                const base64ImageBytes = part.inlineData.data;
+                imageUrl = `data:image/png;base64,${base64ImageBytes}`;
+                break;
+              }
+            }
+            
+            if (imageUrl) {
+                imagePreview.src = imageUrl;
+                imageContainer?.classList.remove('hidden');
+
+                const webhookToggle = document.getElementById('groq-image-webhook-toggle') as HTMLInputElement;
+                if (webhookToggle?.checked) {
+                    sendWebhook('Groq Images', 'success', { prompt, imageUrl: 'base64_image_data' });
+                }
+            } else {
+                throw new Error('No image was generated by the API.');
             }
         } catch (error) {
             if(statusEl) {
                 const span = statusEl.querySelector('span');
-                if(span) span.textContent = 'Error generating image.';
+                const message = error instanceof Error ? error.message : 'An unknown error occurred.';
+                if(span) span.textContent = `Error: ${message}`;
             }
             console.error(error);
         } finally {
