@@ -15,14 +15,17 @@ import apiKeysHtml from './pages/api-keys.html?raw';
 import notFoundHtml from './pages/not-found.html?raw';
 
 // --- TYPE DEFINITIONS ---
+// FIX: Moved the AIStudio interface into the `declare global` block to make it a global type.
+// This ensures that all declarations of 'aistudio' on the Window object are consistent
+// and use the same type, resolving a TypeScript declaration conflict.
 declare global {
+    interface AIStudio {
+        hasSelectedApiKey: () => Promise<boolean>;
+        openSelectKey: () => Promise<void>;
+    }
+
     interface Window {
-        // FIX: Inlined the AIStudio type definition to resolve a TypeScript declaration conflict.
-        // The previous separate interface was likely clashing with another definition.
-        aistudio: {
-            hasSelectedApiKey: () => Promise<boolean>;
-            openSelectKey: () => Promise<void>;
-        };
+        aistudio: AIStudio;
     }
 }
 
@@ -37,8 +40,9 @@ interface ApiKeys {
     huggingFaceKey?: string;
 }
 
-// --- CONSTANTS ---
+// --- CONSTANTS & STATE ---
 const API_KEYS_STORAGE_KEY = 'fanaan-ai-keys';
+let hasAttemptedVeoKeySelection = false;
 
 // --- UTILITY FUNCTIONS ---
 const getApiKeys = (): ApiKeys => {
@@ -150,10 +154,32 @@ const initVeoPage = async () => {
     const videoPreview = document.getElementById('veo-video-preview') as HTMLVideoElement;
     const downloadLink = document.getElementById('veo-download-link') as HTMLAnchorElement;
 
+    const setDownloadLinkState = (enabled: boolean, url: string | null = null) => {
+        if (!downloadLink) return;
+        if (enabled && url) {
+            downloadLink.classList.remove('opacity-50', 'pointer-events-none');
+            downloadLink.setAttribute('aria-disabled', 'false');
+            downloadLink.href = url;
+        } else {
+            downloadLink.classList.add('opacity-50', 'pointer-events-none');
+            downloadLink.setAttribute('aria-disabled', 'true');
+            downloadLink.removeAttribute('href');
+        }
+    };
+
     const checkApiKey = async () => {
+        // If the user has already gone through the selection process, optimistically show the content.
+        // This avoids re-prompting on every navigation. The API call will fail if the key is bad.
+        if (hasAttemptedVeoKeySelection) {
+            keyInfo.classList.add('hidden');
+            pageContent.classList.remove('hidden');
+            return;
+        }
+
         try {
             const hasKey = await window.aistudio.hasSelectedApiKey();
             if (hasKey) {
+                hasAttemptedVeoKeySelection = true; // Persist the state for the session
                 keyInfo.classList.add('hidden');
                 pageContent.classList.remove('hidden');
             } else {
@@ -169,8 +195,8 @@ const initVeoPage = async () => {
 
     selectKeyButton.addEventListener('click', async () => {
         await window.aistudio.openSelectKey();
-        // FIX: Assume key selection was successful to avoid race conditions.
-        // The API call will fail if the key is invalid, which is handled below.
+        // Mark that the user has attempted to select a key and show the main content.
+        hasAttemptedVeoKeySelection = true;
         keyInfo.classList.add('hidden');
         pageContent.classList.remove('hidden');
     });
@@ -190,6 +216,7 @@ const initVeoPage = async () => {
         generateButton.disabled = true;
         statusEl.classList.remove('hidden');
         videoContainer.classList.add('hidden');
+        setDownloadLinkState(false);
 
         try {
             const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
@@ -211,15 +238,17 @@ const initVeoPage = async () => {
                 const blob = await response.blob();
                 const blobUrl = URL.createObjectURL(blob);
                 videoPreview.src = blobUrl;
-                downloadLink.href = blobUrl;
                 videoContainer.classList.remove('hidden');
+                setDownloadLinkState(true, blobUrl);
             } else {
                 throw new Error("Video generation completed but no URI was found.");
             }
         } catch (error) {
             console.error('Video generation failed:', error);
+            // If the key is invalid, reset the selection state and re-run the check.
             if (error instanceof Error && error.message.includes("Requested entity was not found")) {
-                 await checkApiKey(); // Re-prompt for key if it was invalid
+                 hasAttemptedVeoKeySelection = false;
+                 await checkApiKey();
                  alert("API Key is invalid. Please select a valid key.");
             } else {
                 alert(`An error occurred: ${error instanceof Error ? error.message : String(error)}`);
@@ -230,6 +259,7 @@ const initVeoPage = async () => {
         }
     });
 
+    setDownloadLinkState(false);
     await checkApiKey();
 };
 
