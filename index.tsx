@@ -1,11 +1,15 @@
+/*
+ * Fanaan AI Dashboard
+ * Central logic for routing, page initialization, and API interactions.
+ */
 import { GoogleGenAI, Modality } from "@google/genai";
 
-// Page content is imported as raw text at build time
+// Import page content as raw HTML strings
 import homeContent from './pages/home.html?raw';
 import veoContent from './pages/veo.html?raw';
 import geminiImagesContent from './pages/gemini-images.html?raw';
-import hfImagesContent from './pages/huggingface-images.html?raw';
-import hfVideoContent from './pages/huggingface-video.html?raw';
+import huggingfaceVideoContent from './pages/huggingface-video.html?raw';
+import huggingfaceImagesContent from './pages/huggingface-images.html?raw';
 import groqTextContent from './pages/groq-text.html?raw';
 import groqTtsContent from './pages/groq-tts.html?raw';
 import claudeTextContent from './pages/claude-text.html?raw';
@@ -15,256 +19,321 @@ import openrouterContent from './pages/openrouter.html?raw';
 import apiKeysContent from './pages/api-keys.html?raw';
 import notFoundContent from './pages/not-found.html?raw';
 
-// Helper to get element by ID and throw if not found
-function getById<T extends HTMLElement>(id: string, type: { new(): T }): T {
-    const el = document.getElementById(id);
-    if (!el || !(el instanceof type)) {
-        throw new Error(`Element with id '${id}' not found or is not of type ${type.name}`);
-    }
-    return el;
+// --- TYPE DEFINITIONS & GLOBAL DECLARATIONS ---
+
+// FIX: Define AIStudio interface to resolve type conflict for window.aistudio
+interface AIStudio {
+  hasSelectedApiKey: () => Promise<boolean>;
+  openSelectKey: () => Promise<void>;
 }
 
-// Global state
-let veoApiKeySelected = false;
+declare global {
+  interface Window {
+    aistudio?: AIStudio;
+  }
+}
 
-// --- API Keys Management ---
-const API_KEYS = {
-    n8nWebhookUrl: "",
-    googleGenAIKey: "",
-    groqKey: "",
-    huggingFaceKey: "",
-    openAIKey: "",
-    anthropicKey: "",
-    openRouterKey: "",
-    deepSeekKey: "",
+interface Route {
+  path: string;
+  content: string;
+  title: string;
+  init?: () => Promise<void> | void;
+}
+
+// --- UTILITY FUNCTIONS ---
+
+/**
+ * Gets an API key from local storage.
+ * @param keyName The name of the key to retrieve.
+ * @returns The key value or null if not found.
+ */
+const getApiKey = (keyName: string): string | null => {
+  return localStorage.getItem(keyName);
 };
-type ApiKey = keyof typeof API_KEYS;
 
-function loadApiKeys() {
-    Object.keys(API_KEYS).forEach(key => {
-        const value = localStorage.getItem(key);
-        if (value) {
-            (API_KEYS as any)[key] = value;
-        }
-    });
-}
-
-function saveApiKeys() {
-    Object.keys(API_KEYS).forEach(key => {
-        const input = document.getElementById(key) as HTMLInputElement;
-        if (input) {
-            localStorage.setItem(key, input.value);
-            (API_KEYS as any)[key] = input.value;
-        }
-    });
-}
-
-// --- Webhook Helper ---
-async function sendWebhook(page: string, data: any) {
-    const webhookUrl = API_KEYS.n8nWebhookUrl;
-    if (!webhookUrl) return;
-
+/**
+ * Sends a webhook with the result of a generation.
+ * @param payload The data to send.
+ */
+const sendWebhook = async (payload: object) => {
+  const webhookUrl = getApiKey('n8nWebhookUrl');
+  if (webhookUrl) {
     try {
-        await fetch(webhookUrl, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ source: `FanaanAI-${page}`, ...data }),
-        });
+      await fetch(webhookUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
     } catch (error) {
-        console.error("Webhook failed:", error);
+      console.error('Webhook failed:', error);
     }
-}
+  }
+};
 
-// --- Generic UI Helpers ---
-function toggleLoading(buttonId: string, isLoading: boolean, loadingText = 'Generating...') {
-    const button = getById(buttonId, HTMLButtonElement);
-    button.disabled = isLoading;
-    if (isLoading) {
-        button.innerHTML = `<div class="spinner"></div> ${loadingText}`;
-    } else {
-        button.innerHTML = button.dataset.originalText || 'Generate';
+/**
+ * Handles generic text streaming from various API providers.
+ * @param endpoint The API endpoint URL.
+ * @param apiKey The API key.
+ * @param body The request body.
+ * @param responseEl The HTML element to stream the response into.
+ * @param generateButton The button that triggered the generation.
+ * @param onComplete Callback function when streaming is complete.
+ */
+const streamTextResponse = async (
+  endpoint: string,
+  apiKey: string,
+  body: object,
+  responseEl: HTMLElement,
+  generateButton: HTMLButtonElement,
+  onComplete: (fullText: string) => void
+) => {
+  try {
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({ ...body, stream: true }),
+    });
+
+    if (!response.ok || !response.body) {
+      const errorText = await response.text();
+      throw new Error(`API Error: ${response.status} ${response.statusText} - ${errorText}`);
     }
-}
 
-// --- Generic Text Streaming ---
-async function streamTextResponse(
-    url: string,
-    apiKey: string,
-    payload: object,
-    responseElementId: string,
-    buttonId: string,
-    webhookToggleId: string,
-    pageName: string,
-    customChunkParser: (chunk: string) => string | null = (chunk) => {
-        try {
-            const json = JSON.parse(chunk.replace('data: ', ''));
-            return json.choices?.[0]?.delta?.content || null;
-        } catch {
-            return null;
+    responseEl.innerHTML = '';
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let fullText = '';
+    let buffer = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || ''; // Keep the last, possibly incomplete, line
+
+      for (const line of lines) {
+        if (line.startsWith('data: ')) {
+          const jsonStr = line.substring(6);
+          if (jsonStr.trim() === '[DONE]') continue;
+          try {
+            const chunk = JSON.parse(jsonStr);
+            const text = chunk.choices[0]?.delta?.content || '';
+            if (text) {
+              fullText += text;
+              // Naive HTML sanitation
+              responseEl.textContent = fullText;
+            }
+          } catch (e) {
+            // Ignore JSON parsing errors for incomplete chunks
+          }
         }
+      }
     }
-) {
-    const responseEl = getById(responseElementId, HTMLDivElement);
-    responseEl.textContent = '';
-    toggleLoading(buttonId, true);
+    onComplete(fullText);
+  } catch (error) {
+    console.error('Streaming Error:', error);
+    responseEl.textContent = error instanceof Error ? error.message : 'An unknown error occurred.';
+  } finally {
+    generateButton.disabled = false;
+    generateButton.innerHTML = 'Generate';
+  }
+};
 
+/**
+ * Handles text streaming specifically for the Anthropic (Claude) API.
+ */
+const streamClaudeResponse = async (
+    apiKey: string,
+    body: object,
+    responseEl: HTMLElement,
+    generateButton: HTMLButtonElement,
+    onComplete: (fullText: string) => void
+) => {
     try {
-        const response = await fetch(url, {
+        const response = await fetch('https://api.anthropic.com/v1/messages', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
-                'Authorization': `Bearer ${apiKey}`,
+                'x-api-key': apiKey,
+                'anthropic-version': '2023-06-01',
             },
-            body: JSON.stringify(payload),
+            body: JSON.stringify({ ...body, stream: true }),
         });
 
         if (!response.ok || !response.body) {
             const errorText = await response.text();
-            throw new Error(`API Error: ${response.statusText} - ${errorText}`);
+            throw new Error(`API Error: ${response.status} ${response.statusText} - ${errorText}`);
         }
 
+        responseEl.innerHTML = '';
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
-        let fullResponse = '';
+        let fullText = '';
 
         while (true) {
             const { done, value } = await reader.read();
             if (done) break;
-            
-            const chunk = decoder.decode(value, { stream: true });
-            chunk.split('\n\n').forEach(line => {
-                if (line.startsWith('data: ')) {
-                    const content = customChunkParser(line);
-                    if (content) {
-                        responseEl.textContent += content;
-                        fullResponse += content;
+            const lines = decoder.decode(value).split('\n');
+            for (const line of lines) {
+                if (line.startsWith('data:')) {
+                    try {
+                        const json = JSON.parse(line.substring(5));
+                        if (json.type === 'content_block_delta' && json.delta.type === 'text_delta') {
+                            fullText += json.delta.text;
+                            responseEl.textContent = fullText;
+                        }
+                    } catch (e) {
+                        // Ignore parsing errors
                     }
                 }
-            });
-        }
-        
-        const webhookToggle = getById(webhookToggleId, HTMLInputElement);
-        if (webhookToggle.checked) {
-            await sendWebhook(pageName, { prompt: (payload as any).messages[0].content, response: fullResponse });
-        }
-
-    } catch (error) {
-        responseEl.textContent = `Error: ${error instanceof Error ? error.message : 'Unknown error'}`;
-    } finally {
-        toggleLoading(buttonId, false);
-    }
-}
-
-
-// --- Page Initializers ---
-
-function initApiKeysPage() {
-    loadApiKeys();
-    Object.keys(API_KEYS).forEach(key => {
-        const input = document.getElementById(key) as HTMLInputElement;
-        if (input) input.value = (API_KEYS as any)[key];
-    });
-
-    getById('save-keys-button', HTMLButtonElement).onclick = () => {
-        saveApiKeys();
-        const statusEl = getById('api-keys-status', HTMLParagraphElement);
-        statusEl.textContent = 'Saved successfully!';
-        statusEl.classList.remove('hidden');
-        setTimeout(() => statusEl.classList.add('hidden'), 2000);
-    };
-
-    getById('clear-keys-button', HTMLButtonElement).onclick = () => {
-        Object.keys(API_KEYS).forEach(key => {
-            localStorage.removeItem(key);
-            const input = document.getElementById(key) as HTMLInputElement;
-            if (input) input.value = '';
-            (API_KEYS as any)[key] = '';
-        });
-    };
-
-    document.querySelectorAll('.password-toggle').forEach(btn => {
-        btn.addEventListener('click', () => {
-            const input = btn.previousElementSibling as HTMLInputElement;
-            input.type = input.type === 'password' ? 'text' : 'password';
-        });
-    });
-    
-    getById('toggle-all-keys-visibility', HTMLButtonElement).onclick = (e) => {
-        const button = e.currentTarget as HTMLButtonElement;
-        const inputs = document.querySelectorAll<HTMLInputElement>('input[type="password"], input[type="text"]');
-        const isShowing = button.textContent === 'Hide All';
-        inputs.forEach(input => {
-            if (input.id !== 'n8nWebhookUrl') {
-                 input.type = isShowing ? 'password' : 'text';
             }
-        });
-        button.textContent = isShowing ? 'Show All' : 'Hide All';
-    };
+        }
+        onComplete(fullText);
+    } catch (error) {
+        console.error('Claude Streaming Error:', error);
+        responseEl.textContent = error instanceof Error ? error.message : 'An unknown error occurred.';
+    } finally {
+        generateButton.disabled = false;
+        generateButton.innerHTML = 'Generate';
+    }
+};
+
+/**
+ * Generic initializer for all text generation pages.
+ */
+const initTextGenerationPage = (
+    formId: string,
+    responseId: string,
+    apiKeyName: string,
+    endpoint: string,
+    isClaude: boolean = false,
+) => {
+    const form = document.getElementById(formId) as HTMLFormElement;
+    const responseEl = document.getElementById(responseId) as HTMLDivElement;
+    if (!form || !responseEl) return;
+
+    form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const formData = new FormData(form);
+        const model = formData.get('model') as string;
+        const prompt = formData.get('prompt') as string;
+        const useWebhook = (form.querySelector('input[type="checkbox"]') as HTMLInputElement)?.checked;
+        const generateButton = form.querySelector('button[type="submit"]') as HTMLButtonElement;
+        const apiKey = getApiKey(apiKeyName);
+
+        if (!apiKey) {
+            responseEl.textContent = `Error: ${apiKeyName} not found. Please set it in the API Keys page.`;
+            return;
+        }
+        if (!prompt.trim()) {
+            responseEl.textContent = 'Error: Prompt cannot be empty.';
+            return;
+        }
+
+        generateButton.disabled = true;
+        generateButton.innerHTML = `<div class="spinner"></div> Generating...`;
+        responseEl.innerHTML = '<div class="animate-pulse bg-gray-700 rounded h-6 w-3/4"></div>';
+
+        const body = {
+            model: model,
+            messages: [{ role: 'user', content: prompt }],
+        };
+
+        const onComplete = (fullText: string) => {
+            if (useWebhook) {
+                sendWebhook({
+                    source: formId,
+                    success: true,
+                    model: model,
+                    prompt: prompt,
+                    response: fullText,
+                });
+            }
+        };
+
+        if (isClaude) {
+            await streamClaudeResponse(apiKey, body, responseEl, generateButton, onComplete);
+        } else {
+            await streamTextResponse(endpoint, apiKey, body, responseEl, generateButton, onComplete);
+        }
+    });
+};
+
+
+// --- PAGE INITIALIZERS ---
+
+function initHomePage() {
+  // No dynamic logic needed for the home page currently
 }
 
-function initVeoPage() {
-    const keyInfo = getById('veo-key-info', HTMLDivElement);
-    const pageContent = getById('veo-page-content', HTMLDivElement);
-    const selectKeyButton = getById('veo-select-key-button', HTMLButtonElement);
-    const form = getById('veo-form', HTMLFormElement);
-    const statusEl = getById('veo-status', HTMLDivElement);
-    const videoContainer = getById('veo-video-container', HTMLDivElement);
-    const videoPreview = getById('veo-video-preview', HTMLVideoElement);
-    const downloadLink = getById('veo-download-link', HTMLAnchorElement);
-    const generateButton = getById('veo-generate-button', HTMLButtonElement);
+async function initVeoPage() {
+    const keyInfoDiv = document.getElementById('veo-key-info') as HTMLDivElement;
+    const pageContentDiv = document.getElementById('veo-page-content') as HTMLDivElement;
+    const selectKeyButton = document.getElementById('veo-select-key-button') as HTMLButtonElement;
+    const form = document.getElementById('veo-form') as HTMLFormElement;
+    const statusEl = document.getElementById('veo-status') as HTMLDivElement;
+    const videoContainer = document.getElementById('veo-video-container') as HTMLDivElement;
+    const videoPreview = document.getElementById('veo-video-preview') as HTMLVideoElement;
+    const downloadLink = document.getElementById('veo-download-link') as HTMLAnchorElement;
 
-    generateButton.dataset.originalText = 'Generate Video';
+    if (!form) return;
 
-    const checkApiKey = async () => {
-        if (veoApiKeySelected || await window.aistudio.hasSelectedApiKey()) {
-            keyInfo.classList.add('hidden');
-            pageContent.classList.remove('hidden');
-            veoApiKeySelected = true;
+    const showForm = () => {
+        keyInfoDiv.classList.add('hidden');
+        pageContentDiv.classList.remove('hidden');
+    };
+
+    const showKeyPrompt = () => {
+        keyInfoDiv.classList.remove('hidden');
+        pageContentDiv.classList.add('hidden');
+        sessionStorage.removeItem('veoApiKeySelected');
+    };
+
+    // UI state management on page load
+    if (sessionStorage.getItem('veoApiKeySelected') === 'true') {
+        showForm();
+    } else {
+        if (window.aistudio && await window.aistudio.hasSelectedApiKey()) {
+            sessionStorage.setItem('veoApiKeySelected', 'true');
+            showForm();
         } else {
-            keyInfo.classList.remove('hidden');
-            pageContent.classList.add('hidden');
+            showKeyPrompt();
         }
-    };
+    }
 
-    selectKeyButton.onclick = async () => {
-        await window.aistudio.openSelectKey();
-        veoApiKeySelected = true;
-        checkApiKey();
-    };
+    selectKeyButton.addEventListener('click', async () => {
+        if (window.aistudio) {
+            await window.aistudio.openSelectKey();
+            sessionStorage.setItem('veoApiKeySelected', 'true');
+            showForm();
+        }
+    });
 
-    form.onsubmit = async (e) => {
+    form.addEventListener('submit', async (e) => {
         e.preventDefault();
-        
+        const formData = new FormData(form);
+        const prompt = formData.get('prompt') as string;
+        const resolution = formData.get('resolution') as '720p' | '1080p';
+        const aspectRatio = formData.get('aspectRatio') as '16:9' | '9:16';
+        const useWebhook = (document.getElementById('veo-webhook-toggle') as HTMLInputElement).checked;
+        const generateButton = document.getElementById('veo-generate-button') as HTMLButtonElement;
+
+        generateButton.disabled = true;
         statusEl.classList.remove('hidden');
         videoContainer.classList.add('hidden');
         downloadLink.classList.add('hidden');
-        toggleLoading('veo-generate-button', true, 'Generating...');
 
         try {
-            // Re-create the AI client just-in-time to ensure the latest key is used.
-            if (!API_KEYS.googleGenAIKey && typeof process === 'undefined') {
-                // This is a browser environment, rely on the aistudio provided key
-                await checkApiKey();
-                 if (!veoApiKeySelected && !await window.aistudio.hasSelectedApiKey()) {
-                     throw new Error("API Key not selected. Please select a key.");
-                 }
-            }
-            const apiKey = API_KEYS.googleGenAIKey || process.env.API_KEY!;
-            if (!apiKey) throw new Error("Google GenAI API Key is missing.");
-
-            const ai = new GoogleGenAI({ apiKey });
-
-            const formData = new FormData(form);
-            const prompt = formData.get('prompt') as string;
-            
+            const ai = new GoogleGenAI({ apiKey: getApiKey('googleGenAIKey')! });
             let operation = await ai.models.generateVideos({
                 model: 'veo-3.1-fast-generate-preview',
                 prompt: prompt,
-                config: {
-                    numberOfVideos: 1,
-                    resolution: formData.get('resolution') as '1080p' | '720p',
-                    aspectRatio: formData.get('aspectRatio') as '16:9' | '9:16',
-                }
+                config: { numberOfVideos: 1, resolution, aspectRatio },
             });
 
             while (!operation.done) {
@@ -273,321 +342,304 @@ function initVeoPage() {
             }
 
             const videoUri = operation.response?.generatedVideos?.[0]?.video?.uri;
-            if (!videoUri) throw new Error("Video generation failed to produce a URI.");
-            
-            const videoResponse = await fetch(`${videoUri}&key=${apiKey}`);
-            const videoBlob = await videoResponse.blob();
-            const videoUrl = URL.createObjectURL(videoBlob);
-            
-            videoPreview.src = videoUrl;
-            downloadLink.href = videoUrl;
+            if (!videoUri) throw new Error('Video generation failed to return a URI.');
+
+            const videoUrl = `${videoUri}&key=${getApiKey('googleGenAIKey')!}`;
+            const response = await fetch(videoUrl);
+            const videoBlob = await response.blob();
+            const blobUrl = URL.createObjectURL(videoBlob);
+            videoPreview.src = blobUrl;
+            downloadLink.href = blobUrl;
             videoContainer.classList.remove('hidden');
             downloadLink.classList.remove('hidden');
-            
-            const webhookToggle = getById('veo-webhook-toggle', HTMLInputElement);
-            if (webhookToggle.checked) {
-                await sendWebhook('Veo', { prompt, videoUrl });
-            }
 
+            if (useWebhook) {
+                sendWebhook({
+                    source: 'veo', success: true, prompt,
+                    videoUrl: blobUrl, // Note: blobUrl is temporary
+                });
+            }
         } catch (error) {
-            statusEl.textContent = `Error: ${error instanceof Error ? error.message : 'Unknown error'}`;
-             if (error instanceof Error && error.message.includes("Requested entity was not found")) {
-                veoApiKeySelected = false; // Reset state to re-prompt for key
-                checkApiKey();
+            console.error(error);
+            const message = error instanceof Error ? error.message : 'An unknown error occurred.';
+            statusEl.textContent = `Error: ${message}`;
+            if (message.includes("Requested entity was not found")) {
+                showKeyPrompt();
+                statusEl.textContent = "Error: Invalid API Key. Please select a valid key.";
             }
         } finally {
-            statusEl.classList.add('hidden');
-            toggleLoading('veo-generate-button', false);
+            generateButton.disabled = false;
+            if (!statusEl.textContent?.startsWith("Error")) {
+               statusEl.classList.add('hidden');
+            }
         }
-    };
-    
-    checkApiKey();
+    });
 }
 
-function initGeminiImagesPage() {
-    const form = getById('gemini-image-form', HTMLFormElement);
-    const statusEl = getById('gemini-image-status', HTMLDivElement);
-    const container = getById('gemini-image-container', HTMLDivElement);
-    const preview = getById('gemini-image-preview', HTMLImageElement);
-    const generateButton = getById('gemini-image-generate-button', HTMLButtonElement);
-    generateButton.dataset.originalText = 'Generate Image';
-    
-    form.onsubmit = async (e) => {
+async function initGeminiImagesPage() {
+    const form = document.getElementById('gemini-image-form') as HTMLFormElement;
+    if (!form) return;
+    form.addEventListener('submit', async (e) => {
         e.preventDefault();
+        const formData = new FormData(form);
+        const prompt = formData.get('prompt') as string;
+        const useWebhook = (document.getElementById('gemini-image-webhook-toggle') as HTMLInputElement).checked;
+        const generateButton = document.getElementById('gemini-image-generate-button') as HTMLButtonElement;
+        const statusEl = document.getElementById('gemini-image-status') as HTMLDivElement;
+        const container = document.getElementById('gemini-image-container') as HTMLDivElement;
+        const preview = document.getElementById('gemini-image-preview') as HTMLImageElement;
+        const apiKey = getApiKey('googleGenAIKey');
+
+        if (!apiKey) {
+            statusEl.textContent = 'Error: Google GenAI key not set.';
+            statusEl.classList.remove('hidden');
+            return;
+        }
         
+        generateButton.disabled = true;
         statusEl.classList.remove('hidden');
         container.classList.add('hidden');
-        toggleLoading('gemini-image-generate-button', true);
 
         try {
-            const apiKey = API_KEYS.googleGenAIKey || process.env.API_KEY;
-            if (!apiKey) throw new Error("Google GenAI API Key is missing.");
             const ai = new GoogleGenAI({ apiKey });
-            
-            const formData = new FormData(form);
-            const prompt = formData.get('prompt') as string;
-
             const response = await ai.models.generateImages({
                 model: 'imagen-4.0-generate-001',
                 prompt: prompt,
                 config: { numberOfImages: 1 },
             });
-
             const base64Image = response.generatedImages[0].image.imageBytes;
             const imageUrl = `data:image/png;base64,${base64Image}`;
             preview.src = imageUrl;
             container.classList.remove('hidden');
             
-            const webhookToggle = getById('gemini-image-webhook-toggle', HTMLInputElement);
-            if (webhookToggle.checked) {
-                await sendWebhook('Gemini-Images', { prompt, image: imageUrl });
-            }
+            if (useWebhook) sendWebhook({ source: 'gemini-images', success: true, prompt, imageUrl });
 
         } catch (error) {
-            statusEl.textContent = `Error: ${error instanceof Error ? error.message : 'Unknown error'}`;
+            console.error(error);
+            statusEl.textContent = error instanceof Error ? error.message : 'An unknown error occurred.';
         } finally {
-            if (container.classList.contains('hidden')) { // Only hide status if no image is shown
-                 statusEl.classList.add('hidden');
+            generateButton.disabled = false;
+            if (!statusEl.textContent?.startsWith("Error")) {
+                statusEl.classList.add('hidden');
             }
-            toggleLoading('gemini-image-generate-button', false);
         }
-    };
+    });
 }
 
-
-function initHfCommon(
-    formId: string, 
-    statusId: string, 
-    containerId: string, 
-    previewId: string, 
-    buttonId: string,
-    webhookToggleId: string, 
-    pageName: string,
-    resultHandler: (blob: Blob) => { url: string; data?: any }
-) {
-    const form = getById(formId, HTMLFormElement);
-    const statusEl = getById(statusId, HTMLDivElement);
-    const container = getById(containerId, HTMLDivElement);
-    const preview = document.getElementById(previewId) as HTMLImageElement | HTMLVideoElement;
-    const generateButton = getById(buttonId, HTMLButtonElement);
-    generateButton.dataset.originalText = generateButton.textContent!;
-
-    form.onsubmit = async (e) => {
-        e.preventDefault();
-        
-        statusEl.classList.remove('hidden');
-        statusEl.innerHTML = `<div class="spinner"></div> Generating... This may take a moment.`;
-        container.classList.add('hidden');
-        toggleLoading(buttonId, true, 'Generating...');
-
-        try {
-            const apiKey = API_KEYS.huggingFaceKey;
-            if (!apiKey) throw new Error("Hugging Face API Key is missing.");
-
-            const formData = new FormData(form);
-            const model = formData.get('model') as string;
-            const prompt = formData.get('prompt') as string;
-            
-            const isImageToVideo = (formData.get('image') as File)?.size > 0;
-            let data: any = { inputs: prompt };
-
-            if (isImageToVideo) {
-                const imageFile = formData.get('image') as File;
-                const reader = new FileReader();
-                const filePromise = new Promise<ArrayBuffer>((resolve, reject) => {
-                    reader.onload = e => resolve(e.target?.result as ArrayBuffer);
-                    reader.onerror = reject;
-                    reader.readAsArrayBuffer(imageFile);
-                });
-                const imageData = await filePromise;
-                data = imageData;
-            }
-
-            const response = await fetch(`https://api-inference.huggingface.co/models/${model}`, {
-                method: 'POST',
-                headers: { 'Authorization': `Bearer ${apiKey}` },
-                body: isImageToVideo ? data : JSON.stringify(data),
-            });
-
-            if (!response.ok) {
-                 const errorText = await response.text();
-                 throw new Error(`API Error (${response.status}): ${errorText}`);
-            }
-
-            const blob = await response.blob();
-            const { url, data: resultData } = resultHandler(blob);
-            preview.src = url;
-            container.classList.remove('hidden');
-
-            const downloadLink = container.querySelector('a');
-            if(downloadLink) {
-                downloadLink.href = url;
-                downloadLink.classList.remove('hidden');
-            }
-            
-            const webhookToggle = getById(webhookToggleId, HTMLInputElement);
-            if (webhookToggle.checked) {
-                await sendWebhook(pageName, { prompt, model, result: resultData || url });
-            }
-
-        } catch (error) {
-            statusEl.textContent = `Error: ${error instanceof Error ? error.message : 'Unknown error'}`;
-        } finally {
-            if (container.classList.contains('hidden')) {
-                 statusEl.classList.add('hidden');
-            }
-            toggleLoading(buttonId, false);
-        }
-    };
-}
-
-
-function initHfImagesPage() {
-    initHfCommon(
-        'hf-image-form', 
-        'hf-image-status', 
-        'hf-image-container', 
-        'hf-image-preview', 
-        'hf-image-generate-button',
-        'hf-image-webhook-toggle',
-        'HuggingFace-Images',
-        (blob) => ({ url: URL.createObjectURL(blob) })
-    );
-}
-
-function initHfVideoPage() {
-    const textModeBtn = getById('hf-video-mode-text', HTMLButtonElement);
-    const imageModeBtn = getById('hf-video-mode-image', HTMLButtonElement);
-    const modelSelect = getById('hf-video-model', HTMLSelectElement);
-    const promptContainer = getById('hf-video-prompt-container', HTMLDivElement);
-    const imageContainer = getById('hf-video-image-container', HTMLDivElement);
+async function initHuggingFaceVideoPage() {
+    const form = document.getElementById('hf-video-form') as HTMLFormElement;
+    if (!form) return;
+    
+    const modeTextBtn = document.getElementById('hf-video-mode-text') as HTMLButtonElement;
+    const modeImageBtn = document.getElementById('hf-video-mode-image') as HTMLButtonElement;
+    const modelSelect = document.getElementById('hf-video-model') as HTMLSelectElement;
+    const promptContainer = document.getElementById('hf-video-prompt-container') as HTMLDivElement;
+    const imageContainer = document.getElementById('hf-video-image-container') as HTMLDivElement;
+    const statusEl = document.getElementById('hf-video-status') as HTMLDivElement;
+    const videoContainer = document.getElementById('hf-video-container') as HTMLDivElement;
+    const videoPreview = document.getElementById('hf-video-preview') as HTMLVideoElement;
+    const downloadLink = document.getElementById('hf-video-download-link') as HTMLAnchorElement;
 
     const models = {
-        text: [{ id: 'PAIR/zeroscope_v2_576w', name: 'Zeroscope v2 576w' }, { id: 'cerspense/zeroscope_v2_576w', name: 'Zeroscope v2 576w (cerspense)' }],
-        image: [{ id: 'stabilityai/stable-video-diffusion-img2vid-xt', name: 'Stable Video Diffusion' }],
+        'text-to-video': [{ id: 'cerspense/zeroscope-v2-576w', name: 'Zeroscope v2 576w' }],
+        'image-to-video': [{ id: 'stabilityai/stable-video-diffusion-img2vid-xt', name: 'Stable Video Diffusion' }]
     };
 
-    const updateMode = (mode: 'text' | 'image') => {
+    let currentMode: 'text-to-video' | 'image-to-video' = 'text-to-video';
+
+    const updateFormForMode = () => {
         modelSelect.innerHTML = '';
-        models[mode].forEach(m => {
+        models[currentMode].forEach(model => {
             const option = document.createElement('option');
-            option.value = m.id;
-            option.textContent = m.name;
+            option.value = model.id;
+            option.textContent = model.name;
             modelSelect.appendChild(option);
         });
 
-        if (mode === 'text') {
-            textModeBtn.classList.replace('bg-gray-700', 'bg-indigo-600');
-            imageModeBtn.classList.replace('bg-indigo-600', 'bg-gray-700');
+        if (currentMode === 'text-to-video') {
+            modeTextBtn.classList.replace('bg-gray-700', 'bg-indigo-600');
+            modeImageBtn.classList.replace('bg-indigo-600', 'bg-gray-700');
             promptContainer.classList.remove('hidden');
             imageContainer.classList.add('hidden');
         } else {
-            imageModeBtn.classList.replace('bg-gray-700', 'bg-indigo-600');
-            textModeBtn.classList.replace('bg-indigo-600', 'bg-gray-700');
+            modeImageBtn.classList.replace('bg-gray-700', 'bg-indigo-600');
+            modeTextBtn.classList.replace('bg-indigo-600', 'bg-gray-700');
             promptContainer.classList.add('hidden');
             imageContainer.classList.remove('hidden');
         }
     };
+    
+    modeTextBtn.addEventListener('click', () => { currentMode = 'text-to-video'; updateFormForMode(); });
+    modeImageBtn.addEventListener('click', () => { currentMode = 'image-to-video'; updateFormForMode(); });
 
-    textModeBtn.onclick = () => updateMode('text');
-    imageModeBtn.onclick = () => updateMode('image');
-    updateMode('text'); // Initial state
-
-    initHfCommon(
-        'hf-video-form', 
-        'hf-video-status', 
-        'hf-video-container', 
-        'hf-video-preview', 
-        'hf-video-generate-button',
-        'hf-video-webhook-toggle',
-        'HuggingFace-Video',
-        (blob) => {
-            const url = URL.createObjectURL(blob);
-            const videoPreview = getById('hf-video-preview', HTMLVideoElement);
-            videoPreview.onloadeddata = () => URL.revokeObjectURL(url);
-            return { url };
+    form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const apiKey = getApiKey('huggingFaceKey');
+        if (!apiKey) {
+            statusEl.textContent = 'Error: Hugging Face API key not set.';
+            statusEl.classList.remove('hidden');
+            return;
         }
-    );
-}
-
-
-function createTextGenerator(pageName: string, apiUrl: string, apiKeyName: ApiKey, modelElementId: string, promptElementId: string, responseElementId: string, buttonId: string, webhookToggleId: string, customChunkParser?: (chunk: string) => string | null) {
-    return () => {
-        const form = document.querySelector('form')!;
-        getById(buttonId, HTMLButtonElement).dataset.originalText = 'Generate Text';
         
-        form.onsubmit = (e) => {
-            e.preventDefault();
-            const model = getById(modelElementId, HTMLSelectElement).value;
-            const prompt = getById(promptElementId, HTMLTextAreaElement).value;
-            const apiKey = API_KEYS[apiKeyName];
-            if (!apiKey) {
-                getById(responseElementId, HTMLDivElement).textContent = `Error: API Key for ${pageName} is missing.`;
-                return;
+        const generateButton = document.getElementById('hf-video-generate-button') as HTMLButtonElement;
+        generateButton.disabled = true;
+        statusEl.classList.remove('hidden');
+        videoContainer.classList.add('hidden');
+        downloadLink.classList.add('hidden');
+
+        try {
+            const formData = new FormData(form);
+            const model = formData.get('model') as string;
+            let data: any;
+            if (currentMode === 'image-to-video') {
+                const imageFile = formData.get('image') as File;
+                if (!imageFile || imageFile.size === 0) throw new Error('Please select an image file.');
+                data = imageFile;
+            } else {
+                data = { inputs: formData.get('prompt') };
             }
-            const payload = { model, messages: [{ role: 'user', content: prompt }], stream: true };
-            streamTextResponse(apiUrl, apiKey, payload, responseElementId, buttonId, webhookToggleId, pageName, customChunkParser);
-        };
-    };
+
+            const response = await fetch(`https://api-inference.huggingface.co/models/${model}`, {
+                method: 'POST',
+                headers: { Authorization: `Bearer ${apiKey}` },
+                body: data instanceof File ? data : JSON.stringify(data),
+            });
+
+            if (!response.ok) throw new Error(`API Error: ${response.status} ${await response.text()}`);
+            
+            const videoBlob = await response.blob();
+            const blobUrl = URL.createObjectURL(videoBlob);
+            videoPreview.src = blobUrl;
+            downloadLink.href = blobUrl;
+            videoContainer.classList.remove('hidden');
+            downloadLink.classList.remove('hidden');
+
+            if ((document.getElementById('hf-video-webhook-toggle') as HTMLInputElement).checked) {
+                sendWebhook({ source: 'hf-video', success: true, mode: currentMode, model });
+            }
+
+        } catch (error) {
+            console.error(error);
+            statusEl.textContent = error instanceof Error ? error.message : 'An unknown error occurred.';
+        } finally {
+            generateButton.disabled = false;
+             if (!statusEl.textContent?.startsWith("Error")) {
+                statusEl.classList.add('hidden');
+            }
+        }
+    });
+
+    updateFormForMode();
 }
 
-function initGroqTtsPage() {
-    const form = getById('groq-tts-form', HTMLFormElement);
-    const statusEl = getById('groq-tts-status', HTMLDivElement);
-    const container = getById('groq-tts-audio-container', HTMLDivElement);
-    const audioPreview = getById('groq-tts-audio-preview', HTMLAudioElement);
-    const downloadLink = getById('groq-tts-download-link', HTMLAnchorElement);
-    const generateButton = getById('groq-tts-generate-button', HTMLButtonElement);
-    generateButton.dataset.originalText = 'Generate Speech';
+async function initHuggingFaceImagesPage() {
+    const form = document.getElementById('hf-image-form') as HTMLFormElement;
+    if (!form) return;
+    form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const apiKey = getApiKey('huggingFaceKey');
+        if (!apiKey) {
+             (document.getElementById('hf-image-status') as HTMLDivElement).textContent = 'Error: Hugging Face API key not set.';
+             (document.getElementById('hf-image-status') as HTMLDivElement).classList.remove('hidden');
+            return;
+        }
 
-    const modelSelect = getById('groq-tts-model', HTMLSelectElement);
-    const voiceSelect = getById('groq-tts-voice', HTMLSelectElement);
+        const formData = new FormData(form);
+        const model = formData.get('model') as string;
+        const prompt = formData.get('prompt') as string;
+        const useWebhook = (document.getElementById('hf-image-webhook-toggle') as HTMLInputElement).checked;
+        const generateButton = document.getElementById('hf-image-generate-button') as HTMLButtonElement;
+        const statusEl = document.getElementById('hf-image-status') as HTMLDivElement;
+        const container = document.getElementById('hf-image-container') as HTMLDivElement;
+        const preview = document.getElementById('hf-image-preview') as HTMLImageElement;
+
+        generateButton.disabled = true;
+        statusEl.classList.remove('hidden');
+        container.classList.add('hidden');
+
+        try {
+            const response = await fetch(`https://api-inference.huggingface.co/models/${model}`, {
+                method: 'POST',
+                headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+                body: JSON.stringify({ inputs: prompt }),
+            });
+
+            if (!response.ok) throw new Error(`API Error: ${response.status} ${await response.text()}`);
+
+            const imageBlob = await response.blob();
+            const blobUrl = URL.createObjectURL(imageBlob);
+            preview.src = blobUrl;
+            container.classList.remove('hidden');
+            if (useWebhook) sendWebhook({ source: 'hf-images', success: true, model, prompt, imageUrl: blobUrl });
+
+        } catch (error) {
+            console.error(error);
+            statusEl.textContent = error instanceof Error ? error.message : 'An unknown error occurred.';
+        } finally {
+            generateButton.disabled = false;
+            if (!statusEl.textContent?.startsWith("Error")) {
+                statusEl.classList.add('hidden');
+            }
+        }
+    });
+}
+
+async function initGroqTtsPage() {
+    const form = document.getElementById('groq-tts-form') as HTMLFormElement;
+    if (!form) return;
+
+    const modelSelect = document.getElementById('groq-tts-model') as HTMLSelectElement;
+    const voiceSelect = document.getElementById('groq-tts-voice') as HTMLSelectElement;
+    const statusEl = document.getElementById('groq-tts-status') as HTMLDivElement;
+    const audioContainer = document.getElementById('groq-tts-audio-container') as HTMLDivElement;
+    const audioPreview = document.getElementById('groq-tts-audio-preview') as HTMLAudioElement;
+    const downloadLink = document.getElementById('groq-tts-download-link') as HTMLAnchorElement;
 
     const voices = {
-        'playai-tts': {
-            male: ['Basil-PlayAI', 'Briggs-PlayAI', 'Calum-PlayAI', 'Chip-PlayAI', 'Cillian-PlayAI', 'Fritz-PlayAI', 'Mason-PlayAI', 'Mikail-PlayAI', 'Mitch-PlayAI', 'Thunder-PlayAI'],
-            female: ['Arista-PlayAI', 'Atlas-PlayAI', 'Celeste-PlayAI', 'Cheyenne-PlayAI', 'Deedee-PlayAI', 'Gail-PlayAI', 'Indigo-PlayAI', 'Mamaw-PlayAI', 'Quinn-PlayAI'],
+        "playai-tts": {
+            male: ["Basil-PlayAI", "Briggs-PlayAI", "Calum-PlayAI", "Chip-PlayAI", "Cillian-PlayAI", "Fritz-PlayAI", "Mason-PlayAI", "Mikail-PlayAI", "Mitch-PlayAI", "Thunder-PlayAI"],
+            female: ["Arista-PlayAI", "Atlas-PlayAI", "Celeste-PlayAI", "Cheyenne-PlayAI", "Deedee-PlayAI", "Gail-PlayAI", "Indigo-PlayAI", "Mamaw-PlayAI", "Quinn-PlayAI"]
         },
-        'playai-tts-arabic': {
-            male: ['Ahmad-PlayAI', 'Khalid-PlayAI', 'Nasser-PlayAI'],
-            female: ['Amira-PlayAI'],
+        "playai-tts-arabic": {
+            male: ["Ahmad-PlayAI", "Khalid-PlayAI", "Nasser-PlayAI"],
+            female: ["Amira-PlayAI"]
         }
     };
-
+    
     const populateVoices = () => {
-        voiceSelect.innerHTML = '';
         const selectedModel = modelSelect.value as keyof typeof voices;
-        const modelVoices = voices[selectedModel];
-        
-        Object.entries(modelVoices).forEach(([gender, voiceList]) => {
-            const optgroup = document.createElement('optgroup');
-            optgroup.label = gender.charAt(0).toUpperCase() + gender.slice(1);
-            voiceList.forEach(voice => {
+        voiceSelect.innerHTML = '';
+        for (const gender in voices[selectedModel]) {
+            const group = document.createElement('optgroup');
+            group.label = gender.charAt(0).toUpperCase() + gender.slice(1);
+            voices[selectedModel][gender as keyof typeof voices[typeof selectedModel]].forEach(voice => {
                 const option = document.createElement('option');
                 option.value = voice;
                 option.textContent = voice.replace('-PlayAI', '');
-                optgroup.appendChild(option);
+                group.appendChild(option);
             });
-            voiceSelect.appendChild(optgroup);
-        });
+            voiceSelect.appendChild(group);
+        }
     };
     
-    modelSelect.onchange = populateVoices;
-    populateVoices();
+    modelSelect.addEventListener('change', populateVoices);
 
-    form.onsubmit = async (e) => {
+    form.addEventListener('submit', async (e) => {
         e.preventDefault();
-        
-        statusEl.innerHTML = `<div class="spinner"></div> <span>Generating speech...</span>`;
+        const apiKey = getApiKey('groqKey');
+        if (!apiKey) {
+            statusEl.textContent = 'Error: Groq API key not set.';
+            statusEl.classList.remove('hidden');
+            return;
+        }
+
+        const generateButton = document.getElementById('groq-tts-generate-button') as HTMLButtonElement;
+        generateButton.disabled = true;
         statusEl.classList.remove('hidden');
-        container.classList.add('hidden');
+        audioContainer.classList.add('hidden');
         downloadLink.classList.add('hidden');
-        toggleLoading('groq-tts-generate-button', true);
 
         try {
-            const apiKey = API_KEYS.groqKey;
-            if (!apiKey) throw new Error("Groq API Key is missing.");
-
             const formData = new FormData(form);
             const model = formData.get('model') as string;
             const voice = formData.get('voice') as string;
@@ -597,137 +649,144 @@ function initGroqTtsPage() {
                 method: 'POST',
                 headers: {
                     'Authorization': `Bearer ${apiKey}`,
-                    'Content-Type': 'application/json',
+                    'Content-Type': 'application/json'
                 },
-                body: JSON.stringify({ model, input: text, voice }),
+                body: JSON.stringify({ model, input: text, voice })
             });
 
-            if (!response.ok) {
-                 const errorText = await response.text();
-                 throw new Error(`API Error (${response.status}): ${errorText}`);
-            }
+            if (!response.ok) throw new Error(`API Error: ${response.status} ${await response.text()}`);
 
-            const blob = await response.blob();
-            const url = URL.createObjectURL(blob);
-            
-            statusEl.classList.add('hidden');
-            audioPreview.src = url;
-            downloadLink.href = url;
-            container.classList.remove('hidden');
+            const audioBlob = await response.blob();
+            const blobUrl = URL.createObjectURL(audioBlob);
+            audioPreview.src = blobUrl;
+            downloadLink.href = blobUrl;
+            audioContainer.classList.remove('hidden');
             downloadLink.classList.remove('hidden');
-            
-            const webhookToggle = getById('groq-tts-webhook-toggle', HTMLInputElement);
-            if (webhookToggle.checked) {
-                await sendWebhook('Groq-TTS', { text, model, voice });
+
+            if ((document.getElementById('groq-tts-webhook-toggle') as HTMLInputElement).checked) {
+                sendWebhook({ source: 'groq-tts', success: true, model, voice, text });
             }
 
         } catch (error) {
-            statusEl.textContent = `Error: ${error instanceof Error ? error.message : 'Unknown error'}`;
+            console.error(error);
+            statusEl.textContent = error instanceof Error ? error.message : 'An unknown error occurred.';
         } finally {
-            toggleLoading('groq-tts-generate-button', false);
+            generateButton.disabled = false;
+             if (!statusEl.textContent?.startsWith("Error")) {
+                statusEl.classList.add('hidden');
+            }
         }
-    };
+    });
+    
+    populateVoices();
 }
 
+function initApiKeysPage() {
+    const form = document.getElementById('api-keys-form') as HTMLFormElement;
+    if (!form) return;
 
-// --- Router ---
-const routes: { [key: string]: { content: string; init?: () => void; title: string } } = {
-    'home': { content: homeContent, title: 'Home' },
-    'veo': { content: veoContent, init: initVeoPage, title: 'Generate Video (Veo)' },
-    'gemini-images': { content: geminiImagesContent, init: initGeminiImagesPage, title: 'Generate Images (Gemini)' },
-    'huggingface-images': { content: hfImagesContent, init: initHfImagesPage, title: 'Generate Images (Hugging Face)' },
-    'huggingface-video': { content: hfVideoContent, init: initHfVideoPage, title: 'Generate Video (Hugging Face)' },
-    'groq-text': {
-        content: groqTextContent,
-        init: createTextGenerator('Groq', 'https://api.groq.com/openai/v1/chat/completions', 'groqKey', 'groq-text-model', 'groq-text-prompt', 'groq-text-response', 'groq-text-generate-button', 'groq-text-webhook-toggle'),
-        title: 'Generate Text (Groq)',
-    },
-    'groq-tts': { content: groqTtsContent, init: initGroqTtsPage, title: 'Generate Speech (Groq)' },
-    'claude-text': {
-        content: claudeTextContent,
-        init: createTextGenerator(
-            'Claude', 
-            'https://api.anthropic.com/v1/messages', 
-            'anthropicKey', 
-            'claude-text-model', 
-            'claude-text-prompt', 
-            'claude-text-response', 
-            'claude-text-generate-button',
-            'claude-text-webhook-toggle',
-            (chunk) => { // Custom parser for Claude
-                try {
-                    const json = JSON.parse(chunk.replace('data: ', ''));
-                    if (json.type === 'content_block_delta') {
-                        return json.delta?.text || null;
-                    }
-                    return null;
-                } catch { return null; }
-            }
-        ),
-        title: 'Generate Text (Claude)',
-    },
-    'chatgpt-text': {
-        content: chatgptTextContent,
-        init: createTextGenerator('ChatGPT', 'https://api.openai.com/v1/chat/completions', 'openAIKey', 'chatgpt-text-model', 'chatgpt-text-prompt', 'chatgpt-text-response', 'chatgpt-text-generate-button', 'chatgpt-text-webhook-toggle'),
-        title: 'Generate Text (ChatGPT)',
-    },
-    'deepseek-text': {
-        content: deepseekTextContent,
-        init: createTextGenerator('DeepSeek', 'https://api.deepseek.com/chat/completions', 'deepSeekKey', 'deepseek-text-model', 'deepseek-text-prompt', 'deepseek-text-response', 'deepseek-text-generate-button', 'deepseek-text-webhook-toggle'),
-        title: 'Generate Text (DeepSeek)',
-    },
-    'openrouter': {
-        content: openrouterContent,
-        init: createTextGenerator('OpenRouter', 'https://openrouter.ai/api/v1/chat/completions', 'openRouterKey', 'openrouter-model', 'openrouter-prompt', 'openrouter-response', 'openrouter-generate-button', 'openrouter-webhook-toggle'),
-        title: 'Generate with OpenRouter',
-    },
-    'api-keys': { content: apiKeysContent, init: initApiKeysPage, title: 'API Keys' },
-};
+    const keyInputs = Array.from(form.querySelectorAll('input')).filter(el => el.type !== 'checkbox');
+    const statusEl = document.getElementById('api-keys-status') as HTMLParagraphElement;
 
-function router() {
-    const contentEl = document.getElementById('content')!;
-    const hash = window.location.hash.substring(1) || 'home';
-    // FIX: Explicitly type `route` to prevent type inference issues where `init` property is not found on the fallback object.
-    const route: { content: string; init?: () => void; title: string; } = routes[hash] || { content: notFoundContent, title: 'Not Found' };
-
-    contentEl.innerHTML = route.content;
-    document.title = `Fanaan AI - ${route.title}`;
+    // Load saved keys
+    keyInputs.forEach(input => {
+        const savedValue = localStorage.getItem(input.id);
+        if (savedValue) {
+            input.value = savedValue;
+        }
+    });
     
-    // Update active nav link
-    document.querySelectorAll('.nav-link').forEach(link => {
-        link.classList.toggle('active', link.getAttribute('href') === `#${hash}`);
+    // Save keys
+    document.getElementById('save-keys-button')?.addEventListener('click', () => {
+        keyInputs.forEach(input => {
+            if (input.value) {
+                localStorage.setItem(input.id, input.value);
+            } else {
+                localStorage.removeItem(input.id);
+            }
+        });
+        statusEl.textContent = 'Saved!';
+        statusEl.classList.remove('hidden');
+        setTimeout(() => statusEl.classList.add('hidden'), 2000);
     });
 
-    if (route.init) {
-        route.init();
-    }
+    // Clear keys
+    document.getElementById('clear-keys-button')?.addEventListener('click', () => {
+        keyInputs.forEach(input => {
+            localStorage.removeItem(input.id);
+            input.value = '';
+        });
+    });
+
+    // Toggle single password visibility
+    form.querySelectorAll('.password-toggle').forEach(button => {
+        button.addEventListener('click', (e) => {
+            const targetInput = (e.currentTarget as HTMLElement).previousElementSibling as HTMLInputElement;
+            const isPassword = targetInput.type === 'password';
+            targetInput.type = isPassword ? 'text' : 'password';
+        });
+    });
+
+    // Toggle all passwords visibility
+    document.getElementById('toggle-all-keys-visibility')?.addEventListener('click', (e) => {
+        const button = e.currentTarget as HTMLButtonElement;
+        const isShowing = button.textContent === 'Hide All';
+        form.querySelectorAll<HTMLInputElement>('input[type="password"], input[type="text"]').forEach(input => {
+             if (input.id !== 'n8nWebhookUrl') input.type = isShowing ? 'password' : 'text';
+        });
+        button.textContent = isShowing ? 'Show All' : 'Hide All';
+    });
 }
 
+// --- ROUTER & APP INITIALIZATION ---
 
-// --- App Initialization ---
+const routes: Record<string, Route> = {
+    'home': { path: 'home', content: homeContent, title: 'Home', init: initHomePage },
+    'veo': { path: 'veo', content: veoContent, title: 'Generate Video (Veo)', init: initVeoPage },
+    'gemini-images': { path: 'gemini-images', content: geminiImagesContent, title: 'Generate Images (Gemini)', init: initGeminiImagesPage },
+    'huggingface-video': { path: 'huggingface-video', content: huggingfaceVideoContent, title: 'Generate Video (Hugging Face)', init: initHuggingFaceVideoPage },
+    'huggingface-images': { path: 'huggingface-images', content: huggingfaceImagesContent, title: 'Generate Images (Hugging Face)', init: initHuggingFaceImagesPage },
+    'groq-text': { path: 'groq-text', content: groqTextContent, title: 'Generate Text (Groq)', init: () => initTextGenerationPage('groq-text-form', 'groq-text-response', 'groqKey', 'https://api.groq.com/openai/v1/chat/completions') },
+    'groq-tts': { path: 'groq-tts', content: groqTtsContent, title: 'Generate Speech (Groq)', init: initGroqTtsPage },
+    'claude-text': { path: 'claude-text', content: claudeTextContent, title: 'Generate Text (Claude)', init: () => initTextGenerationPage('claude-text-form', 'claude-text-response', 'anthropicKey', 'https://api.anthropic.com/v1/messages', true) },
+    'chatgpt-text': { path: 'chatgpt-text', content: chatgptTextContent, title: 'Generate Text (ChatGPT)', init: () => initTextGenerationPage('chatgpt-text-form', 'chatgpt-text-response', 'openAIKey', 'https://api.openai.com/v1/chat/completions') },
+    'deepseek-text': { path: 'deepseek-text', content: deepseekTextContent, title: 'Generate Text (DeepSeek)', init: () => initTextGenerationPage('deepseek-text-form', 'deepseek-text-response', 'deepSeekKey', 'https://api.deepseek.com/chat/completions') },
+    'openrouter': { path: 'openrouter', content: openrouterContent, title: 'Generate Text (OpenRouter)', init: () => initTextGenerationPage('openrouter-form', 'openrouter-response', 'openRouterKey', 'https://openrouter.ai/api/v1/chat/completions') },
+    'api-keys': { path: 'api-keys', content: apiKeysContent, title: 'API Keys', init: initApiKeysPage },
+};
+
+const contentEl = document.getElementById('content') as HTMLElement;
+const navLinks = document.querySelectorAll('.nav-link');
+
+async function router() {
+  const hash = window.location.hash.substring(1) || 'home';
+  // FIX: Ensure the fallback route object conforms to the Route interface to fix type errors on `route.init`.
+  const route = routes[hash] || { path: 'not-found', content: notFoundContent, title: 'Not Found' };
+  
+  document.title = `Fanaan AI | ${route.title}`;
+  contentEl.innerHTML = route.content;
+
+  if (route.init && typeof route.init === 'function') {
+    await route.init();
+  }
+
+  // Update active nav link
+  navLinks.forEach(link => {
+    link.classList.toggle('active', link.getAttribute('href') === `#${hash}`);
+  });
+}
+
+function initSidebar() {
+    const toggleButton = document.getElementById('sidebar-toggle');
+    const layout = document.querySelector('.dashboard-layout');
+    toggleButton?.addEventListener('click', () => {
+        layout?.classList.toggle('sidebar-collapsed');
+    });
+}
+
+// Initial load
 document.addEventListener('DOMContentLoaded', () => {
-    // Sidebar toggle functionality
-    const toggleButton = getById('sidebar-toggle', HTMLButtonElement);
-    toggleButton.onclick = () => {
-        document.body.classList.toggle('sidebar-collapsed');
-    };
-    
-    // Initial setup
-    loadApiKeys();
-    window.addEventListener('hashchange', router);
-    router(); // Initial page load
+  initSidebar();
+  window.addEventListener('hashchange', router);
+  router(); // Initial page load
 });
-
-// FIX: The previous inlined type for `aistudio` caused a declaration conflict.
-// By defining and using a named interface `AIStudio`, we allow TypeScript
-// to correctly merge this declaration with any other existing declarations for `window.aistudio`.
-declare global {
-    interface AIStudio {
-        hasSelectedApiKey: () => Promise<boolean>;
-        openSelectKey: () => Promise<void>;
-    }
-    interface Window {
-        // FIX: Add readonly modifier to resolve "All declarations of 'aistudio' must have identical modifiers." error.
-        readonly aistudio: AIStudio;
-    }
-}
