@@ -35,7 +35,7 @@
       </div>
 
       <!-- Video Options -->
-      <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
         <div>
           <label for="veo-resolution" class="block text-sm font-medium text-gray-300 mb-2">Resolution</label>
           <select id="veo-resolution" name="resolution" class="form-select">
@@ -49,6 +49,18 @@
             <option value="16:9" selected>16:9 (Widescreen)</option>
             <option value="9:16">9:16 (Vertical)</option>
           </select>
+        </div>
+        <div>
+          <label for="veo-length" class="block text-sm font-medium text-gray-300 mb-2">Length (seconds)</label>
+          <input 
+            type="number" 
+            id="veo-length" 
+            name="length" 
+            class="form-input" 
+            value="4" 
+            min="2" 
+            max="15" 
+          />
         </div>
       </div>
       
@@ -74,7 +86,7 @@
         <span>Generating... this may take a few minutes.</span>
       </div>
       <div id="veo-video-container" class="hidden">
-        <video id="veo-video-preview" controls class="w-full rounded-lg"></video>
+        <video id="veo-video-preview" controls autoplay muted loop class="w-full rounded-lg"></video>
       </div>
        <a id="veo-download-link" href="#" download="generated-video.mp4" class="btn btn-primary inline-block mt-2 hidden">Download Video</a>
     </div>

@@ -21,13 +21,13 @@ import notFoundContent from './pages/not-found.html?raw';
 
 // --- TYPE DEFINITIONS & GLOBAL DECLARATIONS ---
 
-// FIX: Define AIStudio interface to resolve type conflict for window.aistudio
-interface AIStudio {
-  hasSelectedApiKey: () => Promise<boolean>;
-  openSelectKey: () => Promise<void>;
-}
-
+// FIX: Moved the AIStudio interface into the `declare global` block to ensure it has a single, global definition. This resolves the error about subsequent property declarations needing the same type by preventing module-scoped type conflicts for `window.aistudio`.
 declare global {
+  interface AIStudio {
+    hasSelectedApiKey: () => Promise<boolean>;
+    openSelectKey: () => Promise<void>;
+  }
+
   interface Window {
     aistudio?: AIStudio;
   }
@@ -317,11 +317,14 @@ async function initVeoPage() {
     form.addEventListener('submit', async (e) => {
         e.preventDefault();
         const formData = new FormData(form);
-        const prompt = formData.get('prompt') as string;
+        const originalPrompt = formData.get('prompt') as string;
+        const length = formData.get('length') as string;
         const resolution = formData.get('resolution') as '720p' | '1080p';
         const aspectRatio = formData.get('aspectRatio') as '16:9' | '9:16';
         const useWebhook = (document.getElementById('veo-webhook-toggle') as HTMLInputElement).checked;
         const generateButton = document.getElementById('veo-generate-button') as HTMLButtonElement;
+
+        const prompt = `A ${length} second video of ${originalPrompt}`;
 
         generateButton.disabled = true;
         statusEl.classList.remove('hidden');
@@ -329,7 +332,8 @@ async function initVeoPage() {
         downloadLink.classList.add('hidden');
 
         try {
-            const ai = new GoogleGenAI({ apiKey: getApiKey('googleGenAIKey')! });
+            // FIX: The Google GenAI API key must be sourced from `process.env.API_KEY` as per the guidelines.
+            const ai = new GoogleGenAI({ apiKey: process.env.API_KEY! });
             let operation = await ai.models.generateVideos({
                 model: 'veo-3.1-fast-generate-preview',
                 prompt: prompt,
@@ -344,18 +348,21 @@ async function initVeoPage() {
             const videoUri = operation.response?.generatedVideos?.[0]?.video?.uri;
             if (!videoUri) throw new Error('Video generation failed to return a URI.');
 
-            const videoUrl = `${videoUri}&key=${getApiKey('googleGenAIKey')!}`;
+            // FIX: The API key for the video download URL must also come from `process.env.API_KEY`.
+            const videoUrl = `${videoUri}&key=${process.env.API_KEY!}`;
             const response = await fetch(videoUrl);
             const videoBlob = await response.blob();
             const blobUrl = URL.createObjectURL(videoBlob);
             videoPreview.src = blobUrl;
+            videoPreview.controls = true;
+            videoPreview.play().catch(e => console.error("Autoplay was prevented:", e));
             downloadLink.href = blobUrl;
             videoContainer.classList.remove('hidden');
             downloadLink.classList.remove('hidden');
 
             if (useWebhook) {
                 sendWebhook({
-                    source: 'veo', success: true, prompt,
+                    source: 'veo', success: true, prompt: originalPrompt,
                     videoUrl: blobUrl, // Note: blobUrl is temporary
                 });
             }
@@ -388,10 +395,11 @@ async function initGeminiImagesPage() {
         const statusEl = document.getElementById('gemini-image-status') as HTMLDivElement;
         const container = document.getElementById('gemini-image-container') as HTMLDivElement;
         const preview = document.getElementById('gemini-image-preview') as HTMLImageElement;
-        const apiKey = getApiKey('googleGenAIKey');
+        // FIX: The Google GenAI API key must be sourced from `process.env.API_KEY` as per the guidelines, not from local storage.
+        const apiKey = process.env.API_KEY;
 
         if (!apiKey) {
-            statusEl.textContent = 'Error: Google GenAI key not set.';
+            statusEl.textContent = 'Error: Google GenAI API key is not configured.';
             statusEl.classList.remove('hidden');
             return;
         }
@@ -760,8 +768,7 @@ const navLinks = document.querySelectorAll('.nav-link');
 
 async function router() {
   const hash = window.location.hash.substring(1) || 'home';
-  // FIX: Ensure the fallback route object conforms to the Route interface to fix type errors on `route.init`.
-  const route = routes[hash] || { path: 'not-found', content: notFoundContent, title: 'Not Found' };
+  const route: Route = routes[hash] || { path: 'not-found', content: notFoundContent, title: 'Not Found' };
   
   document.title = `Fanaan AI | ${route.title}`;
   contentEl.innerHTML = route.content;
