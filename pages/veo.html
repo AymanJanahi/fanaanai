@@ -35,7 +35,14 @@
       </div>
 
       <!-- Video Options -->
-      <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div>
+          <label for="veo-model" class="block text-sm font-medium text-gray-300 mb-2">Model</label>
+          <select id="veo-model" name="model" class="form-select">
+            <option value="veo-3.1-fast-generate-preview" selected>Veo Fast</option>
+            <option value="veo-3.1-generate-preview">Veo High Quality</option>
+          </select>
+        </div>
         <div>
           <label for="veo-resolution" class="block text-sm font-medium text-gray-300 mb-2">Resolution</label>
           <select id="veo-resolution" name="resolution" class="form-select">

@@ -282,6 +282,8 @@ async function initVeoPage() {
     const downloadLink = document.getElementById('veo-download-link') as HTMLAnchorElement;
 
     if (!form || !keyInfoDiv || !pageContentDiv || !selectKeyButton || !statusEl) return;
+    
+    const sessionKey = 'googleGenAiApiKeySelected';
 
     const showForm = () => {
         keyInfoDiv.classList.add('hidden');
@@ -291,25 +293,32 @@ async function initVeoPage() {
     const showKeyPrompt = () => {
         keyInfoDiv.classList.remove('hidden');
         pageContentDiv.classList.add('hidden');
-        sessionStorage.removeItem('veoApiKeySelected');
+        sessionStorage.removeItem(sessionKey);
     };
 
-    // UI state management on page load
-    if (sessionStorage.getItem('veoApiKeySelected') === 'true') {
+    if (!window.aistudio || typeof window.aistudio.hasSelectedApiKey !== 'function') {
+        const keyInfoContent = keyInfoDiv.querySelector('p');
+        const keyInfoTitle = keyInfoDiv.querySelector('h3');
+        if (keyInfoTitle) keyInfoTitle.textContent = "Service Unavailable";
+        if (keyInfoContent) keyInfoContent.textContent = "The API key selection service could not be loaded. Please ensure you are in the correct environment and reload the page.";
+        selectKeyButton.classList.add('hidden');
+        showKeyPrompt();
+        return;
+    }
+    
+    const hasKey = sessionStorage.getItem(sessionKey) === 'true' || await window.aistudio.hasSelectedApiKey();
+
+    if (hasKey) {
+        sessionStorage.setItem(sessionKey, 'true');
         showForm();
     } else {
-        if (window.aistudio && await window.aistudio.hasSelectedApiKey()) {
-            sessionStorage.setItem('veoApiKeySelected', 'true');
-            showForm();
-        } else {
-            showKeyPrompt();
-        }
+        showKeyPrompt();
     }
 
     selectKeyButton.addEventListener('click', async () => {
         if (window.aistudio) {
             await window.aistudio.openSelectKey();
-            sessionStorage.setItem('veoApiKeySelected', 'true');
+            sessionStorage.setItem(sessionKey, 'true');
             showForm();
         }
     });
@@ -318,6 +327,7 @@ async function initVeoPage() {
         e.preventDefault();
         const formData = new FormData(form);
         const originalPrompt = formData.get('prompt') as string;
+        const model = formData.get('model') as string;
         const length = formData.get('length') as string;
         const resolution = formData.get('resolution') as '720p' | '1080p';
         const aspectRatio = formData.get('aspectRatio') as '16:9' | '9:16';
@@ -335,7 +345,7 @@ async function initVeoPage() {
         try {
             const ai = new GoogleGenAI({ apiKey: process.env.API_KEY! });
             let operation = await ai.models.generateVideos({
-                model: 'veo-3.1-fast-generate-preview',
+                model: model,
                 prompt: prompt,
                 config: { numberOfVideos: 1, resolution, aspectRatio },
             });
@@ -391,6 +401,8 @@ async function initGeminiImagesPage() {
 
     if (!form || !keyInfoDiv || !pageContentDiv || !selectKeyButton || !statusEl) return;
 
+    const sessionKey = 'googleGenAiApiKeySelected';
+
     const showForm = () => {
         keyInfoDiv.classList.add('hidden');
         pageContentDiv.classList.remove('hidden');
@@ -399,25 +411,32 @@ async function initGeminiImagesPage() {
     const showKeyPrompt = () => {
         keyInfoDiv.classList.remove('hidden');
         pageContentDiv.classList.add('hidden');
-        sessionStorage.removeItem('geminiApiKeySelected');
+        sessionStorage.removeItem(sessionKey);
     };
 
-    // UI state management on page load
-    if (sessionStorage.getItem('geminiApiKeySelected') === 'true') {
+    if (!window.aistudio || typeof window.aistudio.hasSelectedApiKey !== 'function') {
+        const keyInfoContent = keyInfoDiv.querySelector('p');
+        const keyInfoTitle = keyInfoDiv.querySelector('h3');
+        if (keyInfoTitle) keyInfoTitle.textContent = "Service Unavailable";
+        if (keyInfoContent) keyInfoContent.textContent = "The API key selection service could not be loaded. Please ensure you are in the correct environment and reload the page.";
+        selectKeyButton.classList.add('hidden');
+        showKeyPrompt();
+        return;
+    }
+    
+    const hasKey = sessionStorage.getItem(sessionKey) === 'true' || await window.aistudio.hasSelectedApiKey();
+
+    if (hasKey) {
+        sessionStorage.setItem(sessionKey, 'true');
         showForm();
     } else {
-        if (window.aistudio && await window.aistudio.hasSelectedApiKey()) {
-            sessionStorage.setItem('geminiApiKeySelected', 'true');
-            showForm();
-        } else {
-            showKeyPrompt();
-        }
+        showKeyPrompt();
     }
 
     selectKeyButton.addEventListener('click', async () => {
         if (window.aistudio) {
             await window.aistudio.openSelectKey();
-            sessionStorage.setItem('geminiApiKeySelected', 'true');
+            sessionStorage.setItem(sessionKey, 'true');
             showForm();
         }
     });
