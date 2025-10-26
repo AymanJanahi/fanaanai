@@ -204,6 +204,27 @@ const streamClaudeResponse = async (
 };
 
 /**
+ * Waits for the window.aistudio object to be available.
+ * This is necessary because the service might be injected asynchronously by the host environment.
+ * @param timeout The maximum time to wait in milliseconds.
+ * @returns A promise that resolves when the service is ready, or rejects on timeout.
+ */
+const waitForAiStudio = (timeout: number = 5000): Promise<void> => {
+  return new Promise((resolve, reject) => {
+    const startTime = Date.now();
+    const interval = setInterval(() => {
+      if (window.aistudio && typeof window.aistudio.hasSelectedApiKey === 'function' && typeof window.aistudio.openSelectKey === 'function') {
+        clearInterval(interval);
+        resolve();
+      } else if (Date.now() - startTime > timeout) {
+        clearInterval(interval);
+        reject(new Error("AI Studio service failed to load in time."));
+      }
+    }, 100); // Poll every 100ms
+  });
+};
+
+/**
  * Generic initializer for all text generation pages.
  */
 const initTextGenerationPage = (
@@ -290,38 +311,44 @@ async function initVeoPage() {
         pageContentDiv.classList.remove('hidden');
     };
 
-    const showKeyPrompt = () => {
+    const showKeyPrompt = (isServiceUnavailable: boolean = false) => {
         keyInfoDiv.classList.remove('hidden');
         pageContentDiv.classList.add('hidden');
         sessionStorage.removeItem(sessionKey);
+        
+        if (isServiceUnavailable) {
+            const keyInfoContent = keyInfoDiv.querySelector('p');
+            const keyInfoTitle = keyInfoDiv.querySelector('h3');
+            if (keyInfoTitle) keyInfoTitle.textContent = "Service Unavailable";
+            if (keyInfoContent) keyInfoContent.textContent = "The API key selection service could not be loaded. Please ensure you are in the correct environment and reload the page.";
+            selectKeyButton.classList.add('hidden');
+        }
     };
 
-    if (!window.aistudio || typeof window.aistudio.hasSelectedApiKey !== 'function') {
-        const keyInfoContent = keyInfoDiv.querySelector('p');
-        const keyInfoTitle = keyInfoDiv.querySelector('h3');
-        if (keyInfoTitle) keyInfoTitle.textContent = "Service Unavailable";
-        if (keyInfoContent) keyInfoContent.textContent = "The API key selection service could not be loaded. Please ensure you are in the correct environment and reload the page.";
-        selectKeyButton.classList.add('hidden');
-        showKeyPrompt();
-        return;
-    }
-    
-    const hasKey = sessionStorage.getItem(sessionKey) === 'true' || await window.aistudio.hasSelectedApiKey();
+    try {
+        await waitForAiStudio();
+        
+        const hasKey = sessionStorage.getItem(sessionKey) === 'true' || await window.aistudio!.hasSelectedApiKey();
 
-    if (hasKey) {
-        sessionStorage.setItem(sessionKey, 'true');
-        showForm();
-    } else {
-        showKeyPrompt();
-    }
-
-    selectKeyButton.addEventListener('click', async () => {
-        if (window.aistudio) {
-            await window.aistudio.openSelectKey();
+        if (hasKey) {
             sessionStorage.setItem(sessionKey, 'true');
             showForm();
+        } else {
+            showKeyPrompt();
         }
-    });
+
+        selectKeyButton.addEventListener('click', async () => {
+            if (window.aistudio) {
+                await window.aistudio.openSelectKey();
+                sessionStorage.setItem(sessionKey, 'true');
+                showForm();
+            }
+        });
+    } catch (error) {
+        console.error(error);
+        showKeyPrompt(true);
+        return;
+    }
 
     form.addEventListener('submit', async (e) => {
         e.preventDefault();
@@ -408,38 +435,44 @@ async function initGeminiImagesPage() {
         pageContentDiv.classList.remove('hidden');
     };
 
-    const showKeyPrompt = () => {
+    const showKeyPrompt = (isServiceUnavailable: boolean = false) => {
         keyInfoDiv.classList.remove('hidden');
         pageContentDiv.classList.add('hidden');
         sessionStorage.removeItem(sessionKey);
+
+        if (isServiceUnavailable) {
+            const keyInfoContent = keyInfoDiv.querySelector('p');
+            const keyInfoTitle = keyInfoDiv.querySelector('h3');
+            if (keyInfoTitle) keyInfoTitle.textContent = "Service Unavailable";
+            if (keyInfoContent) keyInfoContent.textContent = "The API key selection service could not be loaded. Please ensure you are in the correct environment and reload the page.";
+            selectKeyButton.classList.add('hidden');
+        }
     };
-
-    if (!window.aistudio || typeof window.aistudio.hasSelectedApiKey !== 'function') {
-        const keyInfoContent = keyInfoDiv.querySelector('p');
-        const keyInfoTitle = keyInfoDiv.querySelector('h3');
-        if (keyInfoTitle) keyInfoTitle.textContent = "Service Unavailable";
-        if (keyInfoContent) keyInfoContent.textContent = "The API key selection service could not be loaded. Please ensure you are in the correct environment and reload the page.";
-        selectKeyButton.classList.add('hidden');
-        showKeyPrompt();
-        return;
-    }
     
-    const hasKey = sessionStorage.getItem(sessionKey) === 'true' || await window.aistudio.hasSelectedApiKey();
+    try {
+        await waitForAiStudio();
+        
+        const hasKey = sessionStorage.getItem(sessionKey) === 'true' || await window.aistudio!.hasSelectedApiKey();
 
-    if (hasKey) {
-        sessionStorage.setItem(sessionKey, 'true');
-        showForm();
-    } else {
-        showKeyPrompt();
-    }
-
-    selectKeyButton.addEventListener('click', async () => {
-        if (window.aistudio) {
-            await window.aistudio.openSelectKey();
+        if (hasKey) {
             sessionStorage.setItem(sessionKey, 'true');
             showForm();
+        } else {
+            showKeyPrompt();
         }
-    });
+
+        selectKeyButton.addEventListener('click', async () => {
+            if (window.aistudio) {
+                await window.aistudio.openSelectKey();
+                sessionStorage.setItem(sessionKey, 'true');
+                showForm();
+            }
+        });
+    } catch(error) {
+        console.error(error);
+        showKeyPrompt(true);
+        return;
+    }
 
     form.addEventListener('submit', async (e) => {
         e.preventDefault();
