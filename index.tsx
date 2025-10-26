@@ -359,6 +359,7 @@ async function initGeminiImagesPage() {
 
         const formData = new FormData(form);
         const prompt = formData.get('prompt') as string;
+        const model = formData.get('model') as string;
         const useWebhook = (document.getElementById('gemini-image-webhook-toggle') as HTMLInputElement).checked;
         const generateButton = document.getElementById('gemini-image-generate-button') as HTMLButtonElement;
         const container = document.getElementById('gemini-image-container') as HTMLDivElement;
@@ -371,18 +372,45 @@ async function initGeminiImagesPage() {
 
         try {
             const ai = new GoogleGenAI({ apiKey: apiKey });
-            const response = await ai.models.generateImages({
-                model: 'imagen-4.0-generate-001',
-                prompt: prompt,
-                config: { numberOfImages: 1 },
-            });
-            const base64Image = response.generatedImages[0].image.imageBytes;
+            let base64Image: string | undefined;
+
+            if (model === 'imagen-4.0-generate-001') {
+                const response = await ai.models.generateImages({
+                    model: 'imagen-4.0-generate-001',
+                    prompt: prompt,
+                    config: { numberOfImages: 1 },
+                });
+                base64Image = response.generatedImages[0].image.imageBytes;
+            } else if (model === 'gemini-2.5-flash-image') {
+                const response = await ai.models.generateContent({
+                    model: 'gemini-2.5-flash-image',
+                    contents: {
+                        parts: [{ text: prompt }],
+                    },
+                    config: {
+                        responseModalities: [Modality.IMAGE],
+                    },
+                });
+
+                for (const part of response.candidates[0].content.parts) {
+                    if (part.inlineData) {
+                        base64Image = part.inlineData.data;
+                        break;
+                    }
+                }
+                if (!base64Image) {
+                    throw new Error('Image generation with Gemini Flash failed to return an image.');
+                }
+            } else {
+                 throw new Error(`Unsupported model selected: ${model}`);
+            }
+            
             const imageUrl = `data:image/png;base64,${base64Image}`;
             preview.src = imageUrl;
             container.classList.remove('hidden');
             statusEl.classList.add('hidden');
             
-            if (useWebhook) sendWebhook({ source: 'gemini-images', success: true, prompt, imageUrl });
+            if (useWebhook) sendWebhook({ source: 'gemini-images', success: true, prompt, model, imageUrl });
 
         } catch (error) {
             console.error(error);
