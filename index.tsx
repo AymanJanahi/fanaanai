@@ -21,18 +21,6 @@ import notFoundContent from './pages/not-found.html?raw';
 
 // --- TYPE DEFINITIONS & GLOBAL DECLARATIONS ---
 
-// FIX: Moved the AIStudio interface into the `declare global` block to ensure it has a single, global definition. This resolves the error about subsequent property declarations needing the same type by preventing module-scoped type conflicts for `window.aistudio`.
-declare global {
-  interface AIStudio {
-    hasSelectedApiKey: () => Promise<boolean>;
-    openSelectKey: () => Promise<void>;
-  }
-
-  interface Window {
-    aistudio?: AIStudio;
-  }
-}
-
 interface Route {
   path: string;
   content: string;
@@ -204,27 +192,6 @@ const streamClaudeResponse = async (
 };
 
 /**
- * Waits for the window.aistudio object to be available.
- * This is necessary because the service might be injected asynchronously by the host environment.
- * @param timeout The maximum time to wait in milliseconds.
- * @returns A promise that resolves when the service is ready, or rejects on timeout.
- */
-const waitForAiStudio = (timeout: number = 5000): Promise<void> => {
-  return new Promise((resolve, reject) => {
-    const startTime = Date.now();
-    const interval = setInterval(() => {
-      if (window.aistudio && typeof window.aistudio.hasSelectedApiKey === 'function' && typeof window.aistudio.openSelectKey === 'function') {
-        clearInterval(interval);
-        resolve();
-      } else if (Date.now() - startTime > timeout) {
-        clearInterval(interval);
-        reject(new Error("AI Studio service failed to load in time."));
-      }
-    }, 100); // Poll every 100ms
-  });
-};
-
-/**
  * Generic initializer for all text generation pages.
  */
 const initTextGenerationPage = (
@@ -293,65 +260,24 @@ function initHomePage() {
 }
 
 async function initVeoPage() {
-    const keyInfoDiv = document.getElementById('veo-key-info') as HTMLDivElement;
-    const pageContentDiv = document.getElementById('veo-page-content') as HTMLDivElement;
-    const selectKeyButton = document.getElementById('veo-select-key-button') as HTMLButtonElement;
     const form = document.getElementById('veo-form') as HTMLFormElement;
     const statusEl = document.getElementById('veo-status') as HTMLDivElement;
     const videoContainer = document.getElementById('veo-video-container') as HTMLDivElement;
     const videoPreview = document.getElementById('veo-video-preview') as HTMLVideoElement;
     const downloadLink = document.getElementById('veo-download-link') as HTMLAnchorElement;
 
-    if (!form || !keyInfoDiv || !pageContentDiv || !selectKeyButton || !statusEl) return;
-    
-    const sessionKey = 'googleGenAiApiKeySelected';
-
-    const showForm = () => {
-        keyInfoDiv.classList.add('hidden');
-        pageContentDiv.classList.remove('hidden');
-    };
-
-    const showKeyPrompt = (isServiceUnavailable: boolean = false) => {
-        keyInfoDiv.classList.remove('hidden');
-        pageContentDiv.classList.add('hidden');
-        sessionStorage.removeItem(sessionKey);
-        
-        if (isServiceUnavailable) {
-            const keyInfoContent = keyInfoDiv.querySelector('p');
-            const keyInfoTitle = keyInfoDiv.querySelector('h3');
-            if (keyInfoTitle) keyInfoTitle.textContent = "Service Unavailable";
-            if (keyInfoContent) keyInfoContent.textContent = "The API key selection service could not be loaded. Please ensure you are in the correct environment and reload the page.";
-            selectKeyButton.classList.add('hidden');
-        }
-    };
-
-    try {
-        await waitForAiStudio();
-        
-        const hasKey = sessionStorage.getItem(sessionKey) === 'true' || await window.aistudio!.hasSelectedApiKey();
-
-        if (hasKey) {
-            sessionStorage.setItem(sessionKey, 'true');
-            showForm();
-        } else {
-            showKeyPrompt();
-        }
-
-        selectKeyButton.addEventListener('click', async () => {
-            if (window.aistudio) {
-                await window.aistudio.openSelectKey();
-                sessionStorage.setItem(sessionKey, 'true');
-                showForm();
-            }
-        });
-    } catch (error) {
-        console.error(error);
-        showKeyPrompt(true);
-        return;
-    }
+    if (!form || !statusEl) return;
 
     form.addEventListener('submit', async (e) => {
         e.preventDefault();
+        
+        const apiKey = getApiKey('googleGenAiKey');
+        if (!apiKey) {
+            statusEl.innerHTML = `<span class="text-red-400">Error: Google GenAI API Key not found. Please set it in the API Keys page.</span>`;
+            statusEl.classList.remove('hidden');
+            return;
+        }
+
         const formData = new FormData(form);
         const originalPrompt = formData.get('prompt') as string;
         const model = formData.get('model') as string;
@@ -370,7 +296,7 @@ async function initVeoPage() {
         statusEl.classList.remove('hidden');
 
         try {
-            const ai = new GoogleGenAI({ apiKey: process.env.API_KEY! });
+            const ai = new GoogleGenAI({ apiKey: apiKey });
             let operation = await ai.models.generateVideos({
                 model: model,
                 prompt: prompt,
@@ -385,7 +311,7 @@ async function initVeoPage() {
             const videoUri = operation.response?.generatedVideos?.[0]?.video?.uri;
             if (!videoUri) throw new Error('Video generation failed to return a URI.');
 
-            const videoUrl = `${videoUri}&key=${process.env.API_KEY!}`;
+            const videoUrl = `${videoUri}&key=${apiKey}`;
             const response = await fetch(videoUrl);
             const videoBlob = await response.blob();
             const blobUrl = URL.createObjectURL(videoBlob);
@@ -409,10 +335,6 @@ async function initVeoPage() {
             console.error(error);
             const message = error instanceof Error ? error.message : 'An unknown error occurred.';
             statusEl.innerHTML = `<span class="text-red-400">Error: ${message}</span>`;
-            if (message.includes("Requested entity was not found")) {
-                showKeyPrompt();
-                statusEl.innerHTML = `<span class="text-red-400">Error: Invalid API Key. Please select a valid key.</span>`;
-            }
         } finally {
             generateButton.disabled = false;
         }
@@ -420,62 +342,21 @@ async function initVeoPage() {
 }
 
 async function initGeminiImagesPage() {
-    const keyInfoDiv = document.getElementById('gemini-key-info') as HTMLDivElement;
-    const pageContentDiv = document.getElementById('gemini-page-content') as HTMLDivElement;
-    const selectKeyButton = document.getElementById('gemini-select-key-button') as HTMLButtonElement;
     const form = document.getElementById('gemini-image-form') as HTMLFormElement;
     const statusEl = document.getElementById('gemini-image-status') as HTMLDivElement;
 
-    if (!form || !keyInfoDiv || !pageContentDiv || !selectKeyButton || !statusEl) return;
-
-    const sessionKey = 'googleGenAiApiKeySelected';
-
-    const showForm = () => {
-        keyInfoDiv.classList.add('hidden');
-        pageContentDiv.classList.remove('hidden');
-    };
-
-    const showKeyPrompt = (isServiceUnavailable: boolean = false) => {
-        keyInfoDiv.classList.remove('hidden');
-        pageContentDiv.classList.add('hidden');
-        sessionStorage.removeItem(sessionKey);
-
-        if (isServiceUnavailable) {
-            const keyInfoContent = keyInfoDiv.querySelector('p');
-            const keyInfoTitle = keyInfoDiv.querySelector('h3');
-            if (keyInfoTitle) keyInfoTitle.textContent = "Service Unavailable";
-            if (keyInfoContent) keyInfoContent.textContent = "The API key selection service could not be loaded. Please ensure you are in the correct environment and reload the page.";
-            selectKeyButton.classList.add('hidden');
-        }
-    };
-    
-    try {
-        await waitForAiStudio();
-        
-        const hasKey = sessionStorage.getItem(sessionKey) === 'true' || await window.aistudio!.hasSelectedApiKey();
-
-        if (hasKey) {
-            sessionStorage.setItem(sessionKey, 'true');
-            showForm();
-        } else {
-            showKeyPrompt();
-        }
-
-        selectKeyButton.addEventListener('click', async () => {
-            if (window.aistudio) {
-                await window.aistudio.openSelectKey();
-                sessionStorage.setItem(sessionKey, 'true');
-                showForm();
-            }
-        });
-    } catch(error) {
-        console.error(error);
-        showKeyPrompt(true);
-        return;
-    }
+    if (!form || !statusEl) return;
 
     form.addEventListener('submit', async (e) => {
         e.preventDefault();
+
+        const apiKey = getApiKey('googleGenAiKey');
+        if (!apiKey) {
+            statusEl.innerHTML = `<span class="text-red-400">Error: Google GenAI API Key not found. Please set it in the API Keys page.</span>`;
+            statusEl.classList.remove('hidden');
+            return;
+        }
+
         const formData = new FormData(form);
         const prompt = formData.get('prompt') as string;
         const useWebhook = (document.getElementById('gemini-image-webhook-toggle') as HTMLInputElement).checked;
@@ -489,7 +370,7 @@ async function initGeminiImagesPage() {
         statusEl.classList.remove('hidden');
 
         try {
-            const ai = new GoogleGenAI({ apiKey: process.env.API_KEY! });
+            const ai = new GoogleGenAI({ apiKey: apiKey });
             const response = await ai.models.generateImages({
                 model: 'imagen-4.0-generate-001',
                 prompt: prompt,
@@ -507,10 +388,6 @@ async function initGeminiImagesPage() {
             console.error(error);
             const message = error instanceof Error ? error.message : 'An unknown error occurred.';
             statusEl.innerHTML = `<span class="text-red-400">Error: ${message}</span>`;
-            if (message.includes("Requested entity was not found")) {
-                showKeyPrompt();
-                statusEl.innerHTML = `<span class="text-red-400">Error: Invalid API Key. Please select a valid key.</span>`;
-            }
         } finally {
             generateButton.disabled = false;
         }
