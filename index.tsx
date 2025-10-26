@@ -438,7 +438,14 @@ async function initHuggingFaceVideoPage() {
     const downloadLink = document.getElementById('hf-video-download-link') as HTMLAnchorElement;
 
     const models = {
-        'text-to-video': [{ id: 'cerspense/zeroscope-v2-576w', name: 'Zeroscope v2 576w' }],
+        'text-to-video': [
+            { id: 'Wan-AI/Wan2.2-TI2V-5B', name: 'Wan 2.2 TI2V' },
+            { id: 'cerspense/zeroscope-v2-xl', name: 'Zeroscope v2 XL' },
+            { id: 'cerspense/zeroscope-v2-576w', name: 'Zeroscope v2 576w' },
+            { id: 'Lightricks/LTX-Video-0.9.7-dev', name: 'Lightricks LTX Video' },
+            { id: 'akhaliq/veo3.1-fast', name: 'Community Veo 3.1 Fast' },
+            { id: 'akhaliq/sora-2', name: 'Community Sora 2' }
+        ],
         'image-to-video': [{ id: 'stabilityai/stable-video-diffusion-img2vid-xt', name: 'Stable Video Diffusion' }]
     };
 
@@ -496,7 +503,7 @@ async function initHuggingFaceVideoPage() {
                 data = { inputs: formData.get('prompt') };
             }
 
-            const response = await fetch(`https://api-inference.huggingface.co/models/${model}`, {
+            const response = await fetch(`https://router.huggingface.co/hf-inference/models/${model}`, {
                 method: 'POST',
                 headers: { Authorization: `Bearer ${apiKey}` },
                 body: data instanceof File ? data : JSON.stringify(data),
@@ -555,7 +562,7 @@ async function initHuggingFaceImagesPage() {
         container.classList.add('hidden');
 
         try {
-            const response = await fetch(`https://api-inference.huggingface.co/models/${model}`, {
+            const response = await fetch(`https://router.huggingface.co/hf-inference/models/${model}`, {
                 method: 'POST',
                 headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
                 body: JSON.stringify({ inputs: prompt }),
