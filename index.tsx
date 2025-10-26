@@ -281,7 +281,7 @@ async function initVeoPage() {
     const videoPreview = document.getElementById('veo-video-preview') as HTMLVideoElement;
     const downloadLink = document.getElementById('veo-download-link') as HTMLAnchorElement;
 
-    if (!form) return;
+    if (!form || !keyInfoDiv || !pageContentDiv || !selectKeyButton || !statusEl) return;
 
     const showForm = () => {
         keyInfoDiv.classList.add('hidden');
@@ -327,12 +327,12 @@ async function initVeoPage() {
         const prompt = `A ${length} second video of ${originalPrompt}`;
 
         generateButton.disabled = true;
-        statusEl.classList.remove('hidden');
         videoContainer.classList.add('hidden');
         downloadLink.classList.add('hidden');
+        statusEl.innerHTML = `<div class="spinner"></div><span>Generating... this may take a few minutes.</span>`;
+        statusEl.classList.remove('hidden');
 
         try {
-            // FIX: The Google GenAI API key must be sourced from `process.env.API_KEY` as per the guidelines.
             const ai = new GoogleGenAI({ apiKey: process.env.API_KEY! });
             let operation = await ai.models.generateVideos({
                 model: 'veo-3.1-fast-generate-preview',
@@ -348,7 +348,6 @@ async function initVeoPage() {
             const videoUri = operation.response?.generatedVideos?.[0]?.video?.uri;
             if (!videoUri) throw new Error('Video generation failed to return a URI.');
 
-            // FIX: The API key for the video download URL must also come from `process.env.API_KEY`.
             const videoUrl = `${videoUri}&key=${process.env.API_KEY!}`;
             const response = await fetch(videoUrl);
             const videoBlob = await response.blob();
@@ -357,8 +356,11 @@ async function initVeoPage() {
             videoPreview.controls = true;
             videoPreview.play().catch(e => console.error("Autoplay was prevented:", e));
             downloadLink.href = blobUrl;
+            downloadLink.download = `fanaan-ai-veo-${Date.now()}.mp4`;
             videoContainer.classList.remove('hidden');
             downloadLink.classList.remove('hidden');
+            statusEl.classList.add('hidden');
+
 
             if (useWebhook) {
                 sendWebhook({
@@ -369,47 +371,73 @@ async function initVeoPage() {
         } catch (error) {
             console.error(error);
             const message = error instanceof Error ? error.message : 'An unknown error occurred.';
-            statusEl.textContent = `Error: ${message}`;
+            statusEl.innerHTML = `<span class="text-red-400">Error: ${message}</span>`;
             if (message.includes("Requested entity was not found")) {
                 showKeyPrompt();
-                statusEl.textContent = "Error: Invalid API Key. Please select a valid key.";
+                statusEl.innerHTML = `<span class="text-red-400">Error: Invalid API Key. Please select a valid key.</span>`;
             }
         } finally {
             generateButton.disabled = false;
-            if (!statusEl.textContent?.startsWith("Error")) {
-               statusEl.classList.add('hidden');
-            }
         }
     });
 }
 
 async function initGeminiImagesPage() {
+    const keyInfoDiv = document.getElementById('gemini-key-info') as HTMLDivElement;
+    const pageContentDiv = document.getElementById('gemini-page-content') as HTMLDivElement;
+    const selectKeyButton = document.getElementById('gemini-select-key-button') as HTMLButtonElement;
     const form = document.getElementById('gemini-image-form') as HTMLFormElement;
-    if (!form) return;
+    const statusEl = document.getElementById('gemini-image-status') as HTMLDivElement;
+
+    if (!form || !keyInfoDiv || !pageContentDiv || !selectKeyButton || !statusEl) return;
+
+    const showForm = () => {
+        keyInfoDiv.classList.add('hidden');
+        pageContentDiv.classList.remove('hidden');
+    };
+
+    const showKeyPrompt = () => {
+        keyInfoDiv.classList.remove('hidden');
+        pageContentDiv.classList.add('hidden');
+        sessionStorage.removeItem('geminiApiKeySelected');
+    };
+
+    // UI state management on page load
+    if (sessionStorage.getItem('geminiApiKeySelected') === 'true') {
+        showForm();
+    } else {
+        if (window.aistudio && await window.aistudio.hasSelectedApiKey()) {
+            sessionStorage.setItem('geminiApiKeySelected', 'true');
+            showForm();
+        } else {
+            showKeyPrompt();
+        }
+    }
+
+    selectKeyButton.addEventListener('click', async () => {
+        if (window.aistudio) {
+            await window.aistudio.openSelectKey();
+            sessionStorage.setItem('geminiApiKeySelected', 'true');
+            showForm();
+        }
+    });
+
     form.addEventListener('submit', async (e) => {
         e.preventDefault();
         const formData = new FormData(form);
         const prompt = formData.get('prompt') as string;
         const useWebhook = (document.getElementById('gemini-image-webhook-toggle') as HTMLInputElement).checked;
         const generateButton = document.getElementById('gemini-image-generate-button') as HTMLButtonElement;
-        const statusEl = document.getElementById('gemini-image-status') as HTMLDivElement;
         const container = document.getElementById('gemini-image-container') as HTMLDivElement;
         const preview = document.getElementById('gemini-image-preview') as HTMLImageElement;
-        // FIX: The Google GenAI API key must be sourced from `process.env.API_KEY` as per the guidelines, not from local storage.
-        const apiKey = process.env.API_KEY;
-
-        if (!apiKey) {
-            statusEl.textContent = 'Error: Google GenAI API key is not configured.';
-            statusEl.classList.remove('hidden');
-            return;
-        }
         
         generateButton.disabled = true;
-        statusEl.classList.remove('hidden');
         container.classList.add('hidden');
+        statusEl.innerHTML = `<div class="spinner"></div><span>Generating...</span>`;
+        statusEl.classList.remove('hidden');
 
         try {
-            const ai = new GoogleGenAI({ apiKey });
+            const ai = new GoogleGenAI({ apiKey: process.env.API_KEY! });
             const response = await ai.models.generateImages({
                 model: 'imagen-4.0-generate-001',
                 prompt: prompt,
@@ -419,20 +447,24 @@ async function initGeminiImagesPage() {
             const imageUrl = `data:image/png;base64,${base64Image}`;
             preview.src = imageUrl;
             container.classList.remove('hidden');
+            statusEl.classList.add('hidden');
             
             if (useWebhook) sendWebhook({ source: 'gemini-images', success: true, prompt, imageUrl });
 
         } catch (error) {
             console.error(error);
-            statusEl.textContent = error instanceof Error ? error.message : 'An unknown error occurred.';
+            const message = error instanceof Error ? error.message : 'An unknown error occurred.';
+            statusEl.innerHTML = `<span class="text-red-400">Error: ${message}</span>`;
+            if (message.includes("Requested entity was not found")) {
+                showKeyPrompt();
+                statusEl.innerHTML = `<span class="text-red-400">Error: Invalid API Key. Please select a valid key.</span>`;
+            }
         } finally {
             generateButton.disabled = false;
-            if (!statusEl.textContent?.startsWith("Error")) {
-                statusEl.classList.add('hidden');
-            }
         }
     });
 }
+
 
 async function initHuggingFaceVideoPage() {
     const form = document.getElementById('hf-video-form') as HTMLFormElement;

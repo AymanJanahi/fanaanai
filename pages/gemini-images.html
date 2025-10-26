@@ -6,42 +6,58 @@
     </p>
   </div>
 
-  <form id="gemini-image-form" class="space-y-6">
-    <!-- Prompt -->
-    <div>
-      <label for="gemini-image-prompt" class="block text-sm font-medium text-gray-300 mb-2">Prompt</label>
-      <textarea
-        id="gemini-image-prompt"
-        name="prompt"
-        rows="4"
-        class="form-input"
-        placeholder="e.g., An abstract painting of a neural network in vibrant colors"
-      ></textarea>
-    </div>
-    
-    <!-- Webhook Toggle -->
-    <div class="flex items-center justify-between pt-2">
-      <span class="text-sm font-medium text-gray-300">Send Webhook on Success</span>
-      <label class="toggle-switch-label">
-        <input type="checkbox" id="gemini-image-webhook-toggle" class="toggle-switch-input" />
-        <span class="toggle-switch-slider"></span>
-      </label>
-    </div>
+  <!-- API Key Selection -->
+  <div id="gemini-key-info" class="text-center p-6 bg-gray-800 rounded-lg hidden">
+      <h3 class="text-lg font-semibold text-white">API Key Required</h3>
+      <p class="text-gray-400 mt-2">
+          Image generation with Gemini requires a Google GenAI API key. Please select a key to continue.
+          For more information on billing, visit the 
+          <a href="https://ai.google.dev/gemini-api/docs/billing" target="_blank" rel="noopener noreferrer" class="text-indigo-400 hover:underline">
+              official documentation
+          </a>.
+      </p>
+      <button id="gemini-select-key-button" class="btn btn-primary mt-4">Select API Key</button>
+  </div>
 
-    <!-- Generate Button -->
-    <div class="pt-2">
-      <button type="submit" id="gemini-image-generate-button" class="btn btn-primary w-full">Generate Image</button>
-    </div>
-  </form>
+  <!-- Main Content -->
+  <div id="gemini-page-content" class="hidden">
+    <form id="gemini-image-form" class="space-y-6">
+      <!-- Prompt -->
+      <div>
+        <label for="gemini-image-prompt" class="block text-sm font-medium text-gray-300 mb-2">Prompt</label>
+        <textarea
+          id="gemini-image-prompt"
+          name="prompt"
+          rows="4"
+          class="form-input"
+          placeholder="e.g., An abstract painting of a neural network in vibrant colors"
+        ></textarea>
+      </div>
+      
+      <!-- Webhook Toggle -->
+      <div class="flex items-center justify-between pt-2">
+        <span class="text-sm font-medium text-gray-300">Send Webhook on Success</span>
+        <label class="toggle-switch-label">
+          <input type="checkbox" id="gemini-image-webhook-toggle" class="toggle-switch-input" />
+          <span class="toggle-switch-slider"></span>
+        </label>
+      </div>
 
-  <!-- Status & Output -->
-  <div class="space-y-4 pt-4 text-center">
-    <div id="gemini-image-status" class="hidden text-gray-400">
-      <div class="spinner"></div>
-      Generating...
-    </div>
-    <div id="gemini-image-container" class="hidden">
-      <img id="gemini-image-preview" class="w-full max-w-md mx-auto rounded-lg" />
+      <!-- Generate Button -->
+      <div class="pt-2">
+        <button type="submit" id="gemini-image-generate-button" class="btn btn-primary w-full">Generate Image</button>
+      </div>
+    </form>
+
+    <!-- Status & Output -->
+    <div class="space-y-4 pt-4 text-center">
+      <div id="gemini-image-status" class="hidden text-gray-400 flex items-center justify-center">
+        <div class="spinner"></div>
+        <span>Generating...</span>
+      </div>
+      <div id="gemini-image-container" class="hidden">
+        <img id="gemini-image-preview" alt="Generated image from Gemini" class="w-full max-w-md mx-auto rounded-lg" />
+      </div>
     </div>
   </div>
 </div>
