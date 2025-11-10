@@ -274,3 +274,40 @@ body {
 .password-toggle:hover {
   color: white;
 }
+
+/* --- CHAT INTERFACE --- */
+.chat-bubble {
+  padding: 0.75rem 1rem;
+  border-radius: 1rem;
+  max-width: 80%;
+  word-wrap: break-word;
+  white-space: pre-wrap; /* To respect newlines in response */
+}
+
+.chat-bubble-user {
+  background-color: #4f46e5; /* indigo-600 */
+  color: white;
+  border-bottom-right-radius: 0.25rem;
+}
+
+.chat-bubble-model {
+  background-color: #374151; /* gray-700 */
+  color: #d1d5db; /* gray-300 */
+  border-bottom-left-radius: 0.25rem;
+}
+
+.chat-bubble-system {
+    background-color: #6b7280; /* gray-500 */
+    color: white;
+    text-align: center;
+    width: 100%;
+    max-width: 100%;
+    padding: 0.5rem;
+    border-radius: 0.25rem;
+}
+
+.spinner.chat-spinner {
+  width: 20px;
+  height: 20px;
+  border-width: 2px;
+}

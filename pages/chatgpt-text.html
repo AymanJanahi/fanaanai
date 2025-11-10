@@ -1,53 +1,48 @@
-<div class="bg-[#2a2b2e] px-8 pt-8 pb-6 rounded-2xl shadow-2xl w-full max-w-3xl mx-auto space-y-6">
-  <div class="space-y-2">
+<div class="bg-[#2a2b2e] px-8 pt-8 pb-6 rounded-2xl shadow-2xl w-full max-w-4xl mx-auto flex flex-col h-[calc(100vh-4rem)]">
+  <!-- Header -->
+  <div class="space-y-2 mb-4">
     <h1 class="text-3xl font-bold text-white tracking-tight">Generate Text with ChatGPT</h1>
-    <p class="text-gray-400">
-      Leverage OpenAI's flagship language models.
-    </p>
+    <p class="text-gray-400">Leverage OpenAI's flagship language models.</p>
   </div>
 
-  <form id="chatgpt-text-form" class="space-y-6">
-    <!-- Model -->
-    <div>
-      <label for="chatgpt-text-model" class="block text-sm font-medium text-gray-300 mb-2">Model</label>
-      <select id="chatgpt-text-model" name="model" class="form-select">
+  <!-- Top Controls -->
+  <form id="chatgpt-text-controls-form" class="flex items-center justify-between gap-4 mb-4">
+    <div class="flex-1">
+      <label for="chatgpt-text-model-select" class="sr-only">Model</label>
+      <select id="chatgpt-text-model-select" name="model" class="form-select">
         <option value="gpt-4-turbo" selected>GPT-4 Turbo</option>
         <option value="gpt-4">GPT-4</option>
         <option value="gpt-3.5-turbo">GPT-3.5 Turbo</option>
       </select>
     </div>
-    <!-- Prompt -->
-    <div>
-      <label for="chatgpt-text-prompt" class="block text-sm font-medium text-gray-300 mb-2">Prompt</label>
-      <textarea
-        id="chatgpt-text-prompt"
-        name="prompt"
-        rows="8"
-        class="form-input"
-        placeholder="Enter your prompt here..."
-      ></textarea>
-    </div>
-    
-    <!-- Webhook Toggle -->
-    <div class="flex items-center justify-between pt-2">
-      <span class="text-sm font-medium text-gray-300">Send Webhook on Success</span>
-      <label class="toggle-switch-label">
-        <input type="checkbox" id="chatgpt-text-webhook-toggle" class="toggle-switch-input" />
-        <span class="toggle-switch-slider"></span>
-      </label>
-    </div>
-
-    <!-- Generate Button -->
-    <div class="pt-2">
-      <button type="submit" id="chatgpt-text-generate-button" class="btn btn-primary w-full">Generate Text</button>
+    <div class="flex items-center gap-4">
+      <div class="flex items-center">
+        <span class="text-sm font-medium text-gray-300 mr-3">Webhook</span>
+        <label class="toggle-switch-label">
+          <input type="checkbox" id="chatgpt-text-webhook-toggle" class="toggle-switch-input" />
+          <span class="toggle-switch-slider"></span>
+        </label>
+      </div>
+      <button type="button" id="chatgpt-text-clear-button" class="btn bg-gray-600 hover:bg-gray-500">Clear Chat</button>
     </div>
   </form>
 
-  <!-- Output -->
-  <div class="space-y-4 pt-4">
-    <h2 class="text-xl font-semibold text-white">Response</h2>
-    <div id="chatgpt-text-response" class="p-4 bg-gray-800 rounded-lg text-gray-300 min-h-[100px]">
-        Your generated text will appear here.
-    </div>
+  <!-- Chat History -->
+  <div id="chatgpt-text-chat-history" class="flex-grow overflow-y-auto p-4 bg-gray-800 rounded-lg flex flex-col space-y-4 mb-4">
+    <div class="text-center text-gray-500 my-auto">Start the conversation by sending a message below.</div>
+  </div>
+
+  <!-- Message Input -->
+  <div class="mt-auto">
+    <form id="chatgpt-text-message-form" class="flex items-start gap-4">
+      <textarea
+        id="chatgpt-text-prompt-input"
+        name="prompt"
+        rows="1"
+        class="form-input flex-grow resize-none"
+        placeholder="Enter your message here..."
+      ></textarea>
+      <button type="submit" id="chatgpt-text-send-button" class="btn btn-primary">Send</button>
+    </form>
   </div>
 </div>

@@ -28,6 +28,19 @@ interface Route {
   init?: () => Promise<void> | void;
 }
 
+interface ChatPageConfig {
+    pageId: string;
+    apiKeyName: string;
+    endpoint: string;
+    isClaude?: boolean;
+}
+
+type Message = {
+    role: 'user' | 'assistant' | 'system';
+    content: string;
+};
+
+
 // --- UTILITY FUNCTIONS ---
 
 /**
@@ -62,74 +75,65 @@ const sendWebhook = async (payload: object) => {
  * Handles generic text streaming from various API providers.
  * @param endpoint The API endpoint URL.
  * @param apiKey The API key.
- * @param body The request body.
- * @param responseEl The HTML element to stream the response into.
- * @param generateButton The button that triggered the generation.
+ * @param model The model name.
+ * @param messages The conversation history.
+ * @param responseEl The HTML element (chat bubble) to stream the response into.
  * @param onComplete Callback function when streaming is complete.
  */
 const streamTextResponse = async (
   endpoint: string,
   apiKey: string,
-  body: object,
+  model: string,
+  messages: Message[],
   responseEl: HTMLElement,
-  generateButton: HTMLButtonElement,
   onComplete: (fullText: string) => void
 ) => {
-  try {
-    const response = await fetch(endpoint, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({ ...body, stream: true }),
-    });
+  const response = await fetch(endpoint, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({ model, messages, stream: true }),
+  });
 
-    if (!response.ok || !response.body) {
-      const errorText = await response.text();
-      throw new Error(`API Error: ${response.status} ${response.statusText} - ${errorText}`);
-    }
+  if (!response.ok || !response.body) {
+    const errorText = await response.text();
+    throw new Error(`API Error: ${response.status} ${response.statusText} - ${errorText}`);
+  }
 
-    responseEl.innerHTML = '';
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder();
-    let fullText = '';
-    let buffer = '';
+  responseEl.innerHTML = ''; // Clear spinner
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let fullText = '';
+  let buffer = '';
 
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
 
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split('\n');
-      buffer = lines.pop() || ''; // Keep the last, possibly incomplete, line
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split('\n');
+    buffer = lines.pop() || '';
 
-      for (const line of lines) {
-        if (line.startsWith('data: ')) {
-          const jsonStr = line.substring(6);
-          if (jsonStr.trim() === '[DONE]') continue;
-          try {
-            const chunk = JSON.parse(jsonStr);
-            const text = chunk.choices[0]?.delta?.content || '';
-            if (text) {
-              fullText += text;
-              // Naive HTML sanitation
-              responseEl.textContent = fullText;
-            }
-          } catch (e) {
-            // Ignore JSON parsing errors for incomplete chunks
+    for (const line of lines) {
+      if (line.startsWith('data: ')) {
+        const jsonStr = line.substring(6);
+        if (jsonStr.trim() === '[DONE]') continue;
+        try {
+          const chunk = JSON.parse(jsonStr);
+          const text = chunk.choices[0]?.delta?.content || '';
+          if (text) {
+            fullText += text;
+            responseEl.textContent = fullText;
           }
+        } catch (e) {
+          // Ignore JSON parsing errors
         }
       }
     }
-    onComplete(fullText);
-  } catch (error) {
-    console.error('Streaming Error:', error);
-    responseEl.textContent = error instanceof Error ? error.message : 'An unknown error occurred.';
-  } finally {
-    generateButton.disabled = false;
-    generateButton.innerHTML = 'Generate';
   }
+  onComplete(fullText);
 };
 
 /**
@@ -137,118 +141,177 @@ const streamTextResponse = async (
  */
 const streamClaudeResponse = async (
     apiKey: string,
-    body: object,
+    model: string,
+    messages: Message[],
     responseEl: HTMLElement,
-    generateButton: HTMLButtonElement,
     onComplete: (fullText: string) => void
 ) => {
-    try {
-        const response = await fetch('https://api.anthropic.com/v1/messages', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'x-api-key': apiKey,
-                'anthropic-version': '2023-06-01',
-            },
-            body: JSON.stringify({ ...body, stream: true }),
-        });
+    const response = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'x-api-key': apiKey,
+            'anthropic-version': '2023-06-01',
+        },
+        body: JSON.stringify({ model, messages, stream: true, max_tokens: 4096 }),
+    });
 
-        if (!response.ok || !response.body) {
-            const errorText = await response.text();
-            throw new Error(`API Error: ${response.status} ${response.statusText} - ${errorText}`);
-        }
+    if (!response.ok || !response.body) {
+        const errorText = await response.text();
+        throw new Error(`API Error: ${response.status} ${response.statusText} - ${errorText}`);
+    }
 
-        responseEl.innerHTML = '';
-        const reader = response.body.getReader();
-        const decoder = new TextDecoder();
-        let fullText = '';
+    responseEl.innerHTML = ''; // Clear spinner
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let fullText = '';
 
-        while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            const lines = decoder.decode(value).split('\n');
-            for (const line of lines) {
-                if (line.startsWith('data:')) {
-                    try {
-                        const json = JSON.parse(line.substring(5));
-                        if (json.type === 'content_block_delta' && json.delta.type === 'text_delta') {
-                            fullText += json.delta.text;
-                            responseEl.textContent = fullText;
-                        }
-                    } catch (e) {
-                        // Ignore parsing errors
+    while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        const lines = decoder.decode(value).split('\n');
+        for (const line of lines) {
+            if (line.startsWith('data:')) {
+                try {
+                    const json = JSON.parse(line.substring(5));
+                    if (json.type === 'content_block_delta' && json.delta.type === 'text_delta') {
+                        fullText += json.delta.text;
+                        responseEl.textContent = fullText;
                     }
+                } catch (e) {
+                    // Ignore parsing errors
                 }
             }
         }
-        onComplete(fullText);
-    } catch (error) {
-        console.error('Claude Streaming Error:', error);
-        responseEl.textContent = error instanceof Error ? error.message : 'An unknown error occurred.';
-    } finally {
-        generateButton.disabled = false;
-        generateButton.innerHTML = 'Generate';
     }
+    onComplete(fullText);
 };
 
 /**
- * Generic initializer for all text generation pages.
+ * Initializes a chat page with conversational UI and state.
  */
-const initTextGenerationPage = (
-    formId: string,
-    responseId: string,
-    apiKeyName: string,
-    endpoint: string,
-    isClaude: boolean = false,
-) => {
-    const form = document.getElementById(formId) as HTMLFormElement;
-    const responseEl = document.getElementById(responseId) as HTMLDivElement;
-    if (!form || !responseEl) return;
+const initChatPage = (config: ChatPageConfig) => {
+    const { pageId, apiKeyName, endpoint, isClaude = false } = config;
 
-    form.addEventListener('submit', async (e) => {
+    const controlForm = document.getElementById(`${pageId}-controls-form`) as HTMLFormElement;
+    const messageForm = document.getElementById(`${pageId}-message-form`) as HTMLFormElement;
+    const chatHistoryEl = document.getElementById(`${pageId}-chat-history`) as HTMLDivElement;
+    const promptInput = document.getElementById(`${pageId}-prompt-input`) as HTMLTextAreaElement;
+    const sendButton = document.getElementById(`${pageId}-send-button`) as HTMLButtonElement;
+    const clearButton = document.getElementById(`${pageId}-clear-button`) as HTMLButtonElement;
+    
+    if (!messageForm || !chatHistoryEl || !promptInput || !sendButton || !clearButton || !controlForm) return;
+
+    let messages: Message[] = [];
+    let firstMessageSent = false;
+
+    // Helper to add a message to the UI
+    const addMessageToUI = (content: string, role: 'user' | 'model' | 'system') => {
+        if (!firstMessageSent) {
+            chatHistoryEl.innerHTML = ''; // Clear "start conversation" message
+            firstMessageSent = true;
+        }
+        
+        const messageWrapper = document.createElement('div');
+        messageWrapper.className = `w-full flex`;
+
+        const bubble = document.createElement('div');
+        bubble.className = `chat-bubble chat-bubble-${role}`;
+        bubble.textContent = content;
+
+        if (role === 'user') {
+            messageWrapper.classList.add('justify-end');
+        } else {
+            messageWrapper.classList.add('justify-start');
+        }
+
+        messageWrapper.appendChild(bubble);
+        chatHistoryEl.appendChild(messageWrapper);
+        chatHistoryEl.scrollTop = chatHistoryEl.scrollHeight;
+        return bubble;
+    };
+    
+    // Auto-resize textarea
+    promptInput.addEventListener('input', () => {
+        promptInput.style.height = 'auto';
+        const maxHeight = window.innerHeight * 0.25; // Max height is 25% of viewport height
+        promptInput.style.height = `${Math.min(promptInput.scrollHeight, maxHeight)}px`;
+    });
+    
+    // Submit on Enter, new line on Shift+Enter
+    promptInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            messageForm.requestSubmit();
+        }
+    });
+
+    const handleSendMessage = async (e: SubmitEvent) => {
         e.preventDefault();
-        const formData = new FormData(form);
-        const model = formData.get('model') as string;
-        const prompt = formData.get('prompt') as string;
-        const useWebhook = (form.querySelector('input[type="checkbox"]') as HTMLInputElement)?.checked;
-        const generateButton = form.querySelector('button[type="submit"]') as HTMLButtonElement;
+        
+        const prompt = promptInput.value.trim();
+        
+        const controlFormData = new FormData(controlForm);
+        const model = controlFormData.get('model') as string;
+        const useWebhook = (controlForm.querySelector('input[type="checkbox"]') as HTMLInputElement)?.checked;
+        
         const apiKey = getApiKey(apiKeyName);
 
         if (!apiKey) {
-            responseEl.textContent = `Error: ${apiKeyName} not found. Please set it in the API Keys page.`;
+            addMessageToUI(`Error: ${apiKeyName} not found. Please set it in the API Keys page.`, 'system');
             return;
         }
-        if (!prompt.trim()) {
-            responseEl.textContent = 'Error: Prompt cannot be empty.';
-            return;
-        }
+        if (!prompt) return;
 
-        generateButton.disabled = true;
-        generateButton.innerHTML = `<div class="spinner"></div> Generating...`;
-        responseEl.innerHTML = '<div class="animate-pulse bg-gray-700 rounded h-6 w-3/4"></div>';
+        addMessageToUI(prompt, 'user');
+        messages.push({ role: 'user', content: prompt });
+        promptInput.value = '';
+        promptInput.style.height = 'auto'; // Reset height
+        
+        sendButton.disabled = true;
+        sendButton.innerHTML = `<div class="spinner !w-5 !h-5 !border-2 !m-0"></div>`;
+        sendButton.classList.add('w-[60px]'); // fixed width during loading
 
-        const body = {
-            model: model,
-            messages: [{ role: 'user', content: prompt }],
-        };
-
+        const modelMessageBubble = addMessageToUI('', 'model');
+        const spinner = document.createElement('div');
+        spinner.className = 'spinner chat-spinner';
+        modelMessageBubble.appendChild(spinner);
+        
         const onComplete = (fullText: string) => {
+            messages.push({ role: 'assistant', content: fullText });
             if (useWebhook) {
                 sendWebhook({
-                    source: formId,
-                    success: true,
-                    model: model,
-                    prompt: prompt,
-                    response: fullText,
+                    source: pageId, success: true, model,
+                    prompt, response: fullText, history: messages,
                 });
             }
         };
 
-        if (isClaude) {
-            await streamClaudeResponse(apiKey, body, responseEl, generateButton, onComplete);
-        } else {
-            await streamTextResponse(endpoint, apiKey, body, responseEl, generateButton, onComplete);
+        const streamMessages = isClaude ? messages.filter(m => m.role !== 'system') : messages;
+
+        try {
+            if (isClaude) {
+                 await streamClaudeResponse(apiKey, model, streamMessages, modelMessageBubble, onComplete);
+            } else {
+                 await streamTextResponse(endpoint, apiKey, model, streamMessages, modelMessageBubble, onComplete);
+            }
+        } catch (error) {
+            const message = error instanceof Error ? error.message : 'An unknown error occurred.';
+            modelMessageBubble.textContent = `Error: ${message}`;
+            modelMessageBubble.classList.add('bg-red-900/50', 'text-red-300');
+        } finally {
+            sendButton.disabled = false;
+            sendButton.textContent = 'Send';
+            sendButton.classList.remove('w-[60px]');
         }
+    };
+
+    messageForm.addEventListener('submit', handleSendMessage);
+
+    clearButton.addEventListener('click', () => {
+        messages = [];
+        firstMessageSent = false;
+        chatHistoryEl.innerHTML = `<div class="text-center text-gray-500 my-auto">Chat cleared. Start a new conversation.</div>`;
     });
 };
 
@@ -750,12 +813,12 @@ const routes: Record<string, Route> = {
     'gemini-images': { path: 'gemini-images', content: geminiImagesContent, title: 'Generate Images (Gemini)', init: initGeminiImagesPage },
     'huggingface-video': { path: 'huggingface-video', content: huggingfaceVideoContent, title: 'Generate Video (Hugging Face)', init: initHuggingFaceVideoPage },
     'huggingface-images': { path: 'huggingface-images', content: huggingfaceImagesContent, title: 'Generate Images (Hugging Face)', init: initHuggingFaceImagesPage },
-    'groq-text': { path: 'groq-text', content: groqTextContent, title: 'Generate Text (Groq)', init: () => initTextGenerationPage('groq-text-form', 'groq-text-response', 'groqKey', 'https://api.groq.com/openai/v1/chat/completions') },
+    'groq-text': { path: 'groq-text', content: groqTextContent, title: 'Generate Text (Groq)', init: () => initChatPage({ pageId: 'groq-text', apiKeyName: 'groqKey', endpoint: 'https://api.groq.com/openai/v1/chat/completions'}) },
     'groq-tts': { path: 'groq-tts', content: groqTtsContent, title: 'Generate Speech (Groq)', init: initGroqTtsPage },
-    'claude-text': { path: 'claude-text', content: claudeTextContent, title: 'Generate Text (Claude)', init: () => initTextGenerationPage('claude-text-form', 'claude-text-response', 'anthropicKey', 'https://api.anthropic.com/v1/messages', true) },
-    'chatgpt-text': { path: 'chatgpt-text', content: chatgptTextContent, title: 'Generate Text (ChatGPT)', init: () => initTextGenerationPage('chatgpt-text-form', 'chatgpt-text-response', 'openAIKey', 'https://api.openai.com/v1/chat/completions') },
-    'deepseek-text': { path: 'deepseek-text', content: deepseekTextContent, title: 'Generate Text (DeepSeek)', init: () => initTextGenerationPage('deepseek-text-form', 'deepseek-text-response', 'deepSeekKey', 'https://api.deepseek.com/chat/completions') },
-    'openrouter': { path: 'openrouter', content: openrouterContent, title: 'Generate Text (OpenRouter)', init: () => initTextGenerationPage('openrouter-form', 'openrouter-response', 'openRouterKey', 'https://openrouter.ai/api/v1/chat/completions') },
+    'claude-text': { path: 'claude-text', content: claudeTextContent, title: 'Generate Text (Claude)', init: () => initChatPage({ pageId: 'claude-text', apiKeyName: 'anthropicKey', endpoint: 'https://api.anthropic.com/v1/messages', isClaude: true }) },
+    'chatgpt-text': { path: 'chatgpt-text', content: chatgptTextContent, title: 'Generate Text (ChatGPT)', init: () => initChatPage({ pageId: 'chatgpt-text', apiKeyName: 'openAIKey', endpoint: 'https://api.openai.com/v1/chat/completions'}) },
+    'deepseek-text': { path: 'deepseek-text', content: deepseekTextContent, title: 'Generate Text (DeepSeek)', init: () => initChatPage({ pageId: 'deepseek-text', apiKeyName: 'deepSeekKey', endpoint: 'https://api.deepseek.com/chat/completions'}) },
+    'openrouter': { path: 'openrouter', content: openrouterContent, title: 'Generate Text (OpenRouter)', init: () => initChatPage({ pageId: 'openrouter', apiKeyName: 'openRouterKey', endpoint: 'https://openrouter.ai/api/v1/chat/completions'}) },
     'api-keys': { path: 'api-keys', content: apiKeysContent, title: 'API Keys', init: initApiKeysPage },
 };
 
